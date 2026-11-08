@@ -36,6 +36,7 @@ class ChatMessageOut(BaseModel):
     reply_to_id: Optional[UUID] = None
     addressed_to_id: Optional[int] = None
     addressed_to_name: Optional[str] = None
+    ai_mode: Optional[str] = None
     actions: Optional[list] = None
     created_at: datetime
     seq: int

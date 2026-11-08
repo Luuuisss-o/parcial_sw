@@ -44,6 +44,11 @@ _AI_MENTION_RE = re.compile(r"(?<![\w@.])@(?:ia|ai|asistente)\b[,:]?", re.IGNORE
 # Cuantas consultas previas del mismo usuario se le pasan al modelo.
 USER_HISTORY_TURNS = 6
 
+# Memoria hibrida: cuantos mensajes recientes del chat del equipo (de todos)
+# se le pasan al modelo como contexto global, y cuanto texto por mensaje.
+TEAM_CONTEXT_MESSAGES = 12
+TEAM_CONTEXT_MAX_CHARS = 400
+
 
 def parse_ai_mention(text: str, ask_ai_flag: bool = False) -> tuple[bool, str]:
     """Devuelve (es_consulta_a_la_ia, texto_sin_la_mencion)."""
@@ -118,6 +123,48 @@ def user_ai_history(db: Session, diagram_id: UUID, user_id: int, before_seq: int
     return pares
 
 
+def team_context(db: Session, diagram_id: UUID, before_seq: int, exclude_user_id: int | None,
+                 limit: int = TEAM_CONTEXT_MESSAGES) -> list[ai_assistant.TeamMessage]:
+    """Conversacion reciente de TODO el equipo (contexto global de la memoria
+    hibrida), anterior a la pregunta actual, de la mas vieja a la mas nueva.
+
+    Se excluye el ida y vuelta de quien pregunta con la IA (sus preguntas
+    "@IA" y las respuestas dirigidas a el): eso ya viaja en su hilo
+    individual, y repetirlo solo gasta tokens y confunde los dos niveles.
+    Sus mensajes normales al equipo si se incluyen. Los errores del
+    asistente no aportan contexto y se omiten."""
+    rows = (
+        db.query(ChatMessage)
+        .filter(
+            ChatMessage.diagram_id == diagram_id,
+            ChatMessage.seq < before_seq,
+            ChatMessage.role != ChatRole.ERROR,
+        )
+        .order_by(ChatMessage.seq.desc())
+        .limit(limit * 3)  # margen por los que se descartan abajo
+        .all()
+    )
+    out: list[ai_assistant.TeamMessage] = []
+    for m in rows:
+        if exclude_user_id is not None and (
+            (m.role == ChatRole.USER and m.asks_ai and m.author_id == exclude_user_id)
+            or (m.role == ChatRole.ASSISTANT and m.addressed_to_id == exclude_user_id)
+        ):
+            continue
+        text = question_text(m.content) if m.asks_ai else m.content
+        if len(text) > TEAM_CONTEXT_MAX_CHARS:
+            text = text[:TEAM_CONTEXT_MAX_CHARS].rstrip() + "…"
+        out.append(ai_assistant.TeamMessage(
+            author=m.author_name,
+            content=(f"(le pregunto a la IA) {text}" if m.asks_ai else text),
+            is_ai=m.role == ChatRole.ASSISTANT,
+            addressed_to=m.addressed_to_name,
+        ))
+        if len(out) >= limit:
+            break
+    return list(reversed(out))
+
+
 def address_reply(reply: str, name: str) -> str:
     """Garantiza que la respuesta nombre a quien pregunto.
 
@@ -138,7 +185,7 @@ def address_reply(reply: str, name: str) -> str:
 
 
 def _save_ai_message(db: Session, question: ChatMessage, role: ChatRole, content: str,
-                     actions: list | None = None) -> ChatMessage:
+                     actions: list | None = None, ai_mode: str | None = None) -> ChatMessage:
     msg = ChatMessage(
         diagram_id=question.diagram_id,
         role=role,
@@ -151,6 +198,7 @@ def _save_ai_message(db: Session, question: ChatMessage, role: ChatRole, content
         addressed_to_id=question.author_id,
         addressed_to_name=question.author_name,
         actions=actions or None,
+        ai_mode=ai_mode,
     )
     db.add(msg)
     db.commit()
@@ -192,11 +240,15 @@ def run_ai_question_background(question_id: UUID) -> None:
         )
 
         try:
+            team = team_context(db, diagram.id, question.seq, exclude_user_id=question.author_id)
             result = ai_assistant.run_command(
-                db, diagram, question_text(question.content), requester=requester, history=history,
+                db, diagram, question_text(question.content), requester=requester,
+                history=history, team_context=team,
             )
             reply = address_reply(result.reply, requester.name)
-            answer = _save_ai_message(db, question, ChatRole.ASSISTANT, reply, result.actions)
+            answer = _save_ai_message(
+                db, question, ChatRole.ASSISTANT, reply, result.actions, ai_mode=result.mode,
+            )
             publish(diagram.id, answer)
             realtime_events.fire(realtime_events.notify_ai_done(
                 diagram.id, reply, result.actions,

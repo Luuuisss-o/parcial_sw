@@ -231,6 +231,7 @@ REST vía `api_client.dart` + WebSocket vía `realtime_service.dart`, ambos apun
 3. `3f9f653ec7cc_add_diagram_collaborators.py` — crea la tabla `diagram_collaborator`.
 4. `8a1c2e4f6b90_add_es_clase_asociacion_to_relacion.py` — agrega `relacion.es_clase_asociacion`.
 5. `b7d3f1a2c9e4_add_chat_message.py` — (Fase 2) crea la tabla `chat_message`.
+6. `c4e8a7d5b1f2_add_ai_mode_to_chat_message.py` — (Fase 2) agrega `chat_message.ai_mode` (`MENTOR`/`AUTO`).
 
 **Nombre de la base** (diagramador): `parcial_sw` (default de `POSTGRES_DB` en `docker-compose.yml`, configurable por variable de entorno `DB_NAME`).
 
@@ -262,6 +263,8 @@ Usuario → frontend (React) → PATCH/POST /diagrams/... → backend → Postgr
 **Flujo de asistente de IA (texto, web)**: `POST /diagrams/{id}/ai/command` → encolado con `BackgroundTasks` → llama a Gemini con el contrato de "tools" → aplica la tool elegida sobre la base → notifica el cambio por WebSocket.
 
 **Flujo de chat grupal y consultas a la IA (Fase 2, CU-14/15/16)**: `POST /diagrams/{id}/chat` guarda el mensaje y lo difunde como `chat.message` a todos los conectados. Si el texto contiene `@IA` (o `ask_ai=true`), además `chat_service.run_ai_question_background` llama al modelo indicándole **quién pregunta** (nombre + email) y el historial de consultas previas de **ese mismo usuario** en el diagrama; la respuesta se guarda dirigida a esa persona (`addressed_to_*`, `reply_to_id`) y se difunde a todos. Si el modelo no nombra a quien preguntó, `chat_service.address_reply` antepone su nombre. En el frontend, `ChatPanel.jsx` (+ `hooks/useTeamChat.js`) reemplaza al antiguo panel privado del asistente.
+
+**Rol de mentoría y memoria híbrida (Fase 2, prioridad media)**: el prompt de `ai_assistant.py` define dos roles: mentor de diseño de software (dudas teóricas: UML, patrones, requerimientos…) y ejecutor de ediciones. `classify_intent()` detecta de forma determinista las consultas claramente teóricas sin verbos de edición y las responde en modo `MENTOR`: el modelo se llama **sin herramientas**, así que no puede modificar el diagrama; la respuesta queda con `ai_mode="MENTOR"` y el chat la marca como "Mentoría". Ante la duda se usa `AUTO` (el modelo puede explicar y/o editar). El prompt lleva tres niveles de contexto: `[Contexto global]` estado del diagrama + conversación reciente del equipo (`chat_service.team_context`, últimos 12 mensajes, sin el ida y vuelta propio de quien pregunta) y `[Hilo individual]` consultas previas de esa persona (`user_ai_history`).
 
 **Flujo de importar foto**: `POST /vision/detect` (sube imagen, Gemini Vision la transcribe a JSON, no se guarda nada aún) → usuario revisa/corrige en el frontend → `POST /vision/apply` (crea el diagrama real con lo confirmado).
 

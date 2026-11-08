@@ -63,6 +63,10 @@ class ChatMessage(Base):
     )
     addressed_to_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
 
+    # Como respondio la IA: "MENTOR" (explicacion teorica, sin herramientas,
+    # no toca el diagrama) o "AUTO" (pudo editar). NULL en mensajes humanos.
+    ai_mode: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+
     # Ediciones que la IA aplico sobre el diagrama al responder (si hubo).
     actions: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
 

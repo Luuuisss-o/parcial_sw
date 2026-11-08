@@ -24,10 +24,13 @@ const colorFor = (email) =>
 const AI_MENTION_RE = /(?<![\w@.])@(?:ia|ai|asistente)\b/gi;
 const hasAiMention = (t) => new RegExp(AI_MENTION_RE.source, "i").test(t);
 
+// La IA cumple dos roles: edita el diagrama cuando se le pide un cambio y
+// actúa como mentora de diseño cuando la consulta es teórica.
 const SUGERENCIAS = [
   "@IA creá una clase Cliente con nombre, email y teléfono",
   "@IA relacioná Cliente y Pedido de uno a muchos",
   "@IA ¿qué diferencia hay entre agregación y composición?",
+  "@IA ¿qué es un requerimiento delegado?",
 ];
 
 const initials = (name = "") =>
@@ -128,6 +131,15 @@ function ChatMessage({ m, mine }) {
               border: `1px solid ${isError ? "var(--danger)" : "var(--accent-soft)"}`,
             }}
           >
+            {m.ai_mode === "MENTOR" && !isError && (
+              <div
+                style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--accent)", marginBottom: 4 }}
+                title="Respuesta teórica: la IA no modificó el diagrama"
+              >
+                <Icon name="help" size={11} />
+                Mentoría · no modifica el diagrama
+              </div>
+            )}
             <MessageText text={m.content} />
             {nActions > 0 && (
               <div
@@ -348,8 +360,9 @@ export default function ChatPanel({ diagramId, myEmail }) {
           <div style={{ display: "grid", gap: "var(--sp-3)" }}>
             <p className="text-muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
               Conversá con tu equipo en tiempo real. Para consultar al asistente escribí{" "}
-              <strong>@IA</strong> al principio del mensaje: la pregunta y la respuesta las ve todo el
-              equipo, y la IA te responde a vos por tu nombre.
+              <strong>@IA</strong> al principio del mensaje: puede editar el diagrama por vos o
+              explicarte conceptos de diseño (UML, patrones, requerimientos) como un mentor. La
+              pregunta y la respuesta las ve todo el equipo, y la IA te responde a vos por tu nombre.
             </p>
             <div style={{ display: "grid", gap: "var(--sp-2)" }}>
               {SUGERENCIAS.map((s) => (
@@ -440,7 +453,7 @@ export default function ChatPanel({ diagramId, myEmail }) {
                 ? "Transcribiendo…"
                 : willAskAi
                 ? "Preguntale algo a la IA…"
-                : "Mensaje (usá @IA para el asistente)"
+                : "Mensaje, o @IA para el asistente"
             }
             disabled={sending || voice.transcribing}
             style={{ resize: "none", minHeight: 36, maxHeight: 120, height: "auto", lineHeight: 1.4, paddingTop: 8 }}

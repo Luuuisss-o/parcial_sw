@@ -25,7 +25,9 @@ from app.main import app
 from app.models.uml import CollaboratorRole, Diagram, DiagramCollaborator
 from app.models.user import User
 from app.services import ai_assistant, chat_service
-from app.services.ai_assistant import AiCommandResult, Requester, build_prompt
+from app.services.ai_assistant import (
+    MODE_AUTO, MODE_MENTOR, AiCommandResult, Requester, TeamMessage, build_prompt, classify_intent,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -102,11 +104,14 @@ def fake_ai(monkeypatch):
     calls = []
     behaviour = {"reply": "Listo, cree la clase Factura.", "error": None}
 
-    def _run_command(db, diagram, user_text, requester=None, history=None):
-        calls.append({"text": user_text, "requester": requester, "history": list(history or [])})
+    def _run_command(db, diagram, user_text, requester=None, history=None, team_context=None, mode=None):
+        calls.append({
+            "text": user_text, "requester": requester, "history": list(history or []),
+            "team": list(team_context or []),
+        })
         if behaviour["error"]:
             raise behaviour["error"]
-        return AiCommandResult(reply=behaviour["reply"], actions=[])
+        return AiCommandResult(reply=behaviour["reply"], actions=[], mode=behaviour.get("mode", "AUTO"))
 
     monkeypatch.setattr(ai_assistant, "run_command", _run_command)
     return calls, behaviour
@@ -149,7 +154,7 @@ def test_build_prompt_identifica_al_usuario_y_su_historial():
     assert "Usuario que te consulta: Ana Pérez (ana@x.com)" in p
     assert "Ana Pérez pregunto: creá la clase Cliente" in p
     assert "Vos respondiste: Ana, creé Cliente." in p
-    assert p.rstrip().endswith("Instruccion actual de Ana Pérez:\nagregale otro atributo")
+    assert p.rstrip().endswith("Consulta actual de Ana Pérez (respondele a esta):\nagregale otro atributo")
 
 
 # ---------------------------------------------------------------------------
@@ -283,3 +288,136 @@ def test_endpoint_ai_command_tambien_es_publico(client, team, fake_ai):
     hist = client.get(f"/diagrams/{did}/chat", headers=_h(team["bruno"])).json()["items"]
     assert hist[0]["content"] == "creá la clase Pago" and hist[0]["asks_ai"] is True
     assert hist[1]["role"] == "ASSISTANT" and hist[1]["reply_to_id"] == r.json()["request_id"]
+
+
+# ---------------------------------------------------------------------------
+# Prioridad media: rol de mentoria (CU-15) y memoria de contexto hibrida
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("text,mode", [
+    ("¿Qué es un requerimiento delegado?", MODE_MENTOR),
+    ("qué diferencia hay entre agregación y composición?", MODE_MENTOR),
+    ("Explicame el patrón Observer con un ejemplo", MODE_MENTOR),
+    ("¿Es correcto que Pedido herede de Cliente?", MODE_MENTOR),
+    ("¿Qué hace un DTO?", MODE_MENTOR),
+    ("Cuál es la multiplicidad correcta entre Cliente y Pedido?", MODE_MENTOR),
+    ("creá la clase Factura", MODE_AUTO),
+    ("agregale email a Cliente", MODE_AUTO),
+    ("¿Qué es una composición? aplicala entre Pedido y Detalle", MODE_AUTO),
+    ("relacioná Cliente y Pedido de uno a muchos", MODE_AUTO),
+    ("hola", MODE_AUTO),
+])
+def test_classify_intent(text, mode):
+    assert classify_intent(text) == mode
+
+
+class _FakeGenai:
+    """Doble del cliente de Gemini para ejercitar el run_command REAL."""
+
+    def __init__(self, output="Ana, una agregación es..."):
+        self.calls = []
+        self.output = output
+
+    def client(self, api_key):
+        from types import SimpleNamespace
+        fake = self
+
+        class _Interactions:
+            def create(self, **kw):
+                fake.calls.append(kw)
+                return SimpleNamespace(steps=[], output_text=fake.output, id="i1")
+
+        return SimpleNamespace(interactions=_Interactions())
+
+
+@pytest.fixture()
+def fake_genai(monkeypatch):
+    from app.core.config import settings
+    fake = _FakeGenai()
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(ai_assistant.genai, "Client", fake.client)
+    return fake
+
+
+def test_mentoria_no_recibe_herramientas_y_no_modifica(team, fake_genai):
+    db = SessionLocal()
+    try:
+        d = db.get(Diagram, uuid.UUID(team["diagram_id"]))
+        r = ai_assistant.run_command(
+            db, d, "¿Qué es un requerimiento delegado?", requester=Requester(1, "Ana Pérez", "a@x.com"),
+        )
+    finally:
+        db.close()
+    assert r.mode == MODE_MENTOR and r.actions == []
+    call = fake_genai.calls[0]
+    assert "tools" not in call  # imposible editar el diagrama en modo mentor
+    assert "MENTOR DE DISENO DE SOFTWARE" in call["system_instruction"]
+    assert "sin modificar el diagrama" in call["input"]
+
+
+def test_modo_auto_si_recibe_herramientas(team, fake_genai):
+    db = SessionLocal()
+    try:
+        d = db.get(Diagram, uuid.UUID(team["diagram_id"]))
+        r = ai_assistant.run_command(db, d, "creá la clase Pago", requester=Requester(1, "Ana Pérez"))
+    finally:
+        db.close()
+    assert r.mode == MODE_AUTO
+    assert "tools" in fake_genai.calls[0]
+
+
+def test_build_prompt_memoria_hibrida_en_niveles():
+    p = build_prompt(
+        '{"clases": []}', "y cómo lo aplico acá?",
+        requester=Requester(user_id=1, name="Ana Pérez"),
+        history=[("qué es una composición?", "Ana, una composición es...")],
+        team_context=[
+            TeamMessage(author="Bruno Díaz", content="propongo que Pedido tenga DetallePedido"),
+            TeamMessage(author="Asistente IA", content="Bruno, creé DetallePedido.", is_ai=True,
+                        addressed_to="Bruno Díaz"),
+        ],
+    )
+    i_diag = p.index("[Contexto global] Estado actual del diagrama")
+    i_team = p.index("[Contexto global] Conversacion reciente del equipo")
+    i_hilo = p.index("[Hilo individual] Consultas previas de Ana Pérez")
+    i_now = p.index("Consulta actual de Ana Pérez")
+    assert i_diag < i_team < i_hilo < i_now
+    assert "- Bruno Díaz: propongo que Pedido tenga DetallePedido" in p
+    assert "- Vos (IA) respondiste a Bruno Díaz: Bruno, creé DetallePedido." in p
+
+
+def test_memoria_hibrida_en_el_flujo_del_chat(client, team, fake_ai):
+    calls, behaviour = fake_ai
+    did = team["diagram_id"]
+    ana, bruno = team["ana"], team["bruno"]
+    behaviour["reply"] = "Ana, una composición es..."
+    client.post(f"/diagrams/{did}/chat", json={"text": "@IA qué es una composición?"}, headers=_h(ana))
+    client.post(f"/diagrams/{did}/chat", json={"text": "propongo que Pedido tenga DetallePedido"},
+                headers=_h(bruno))
+    behaviour["reply"] = "Bruno, creé DetallePedido."
+    client.post(f"/diagrams/{did}/chat", json={"text": "@IA creá la clase DetallePedido"}, headers=_h(bruno))
+    behaviour["reply"] = "Ana, en su diagrama..."
+    client.post(f"/diagrams/{did}/chat", json={"text": "@IA y cómo la aplico con lo que propuso Bruno?"},
+                headers=_h(ana))
+
+    last = calls[-1]
+    # Hilo individual: solo lo de Ana.
+    assert last["history"] == [("qué es una composición?", "Ana, una composición es...")]
+    # Contexto global: lo que dijo/pidió Bruno y lo que la IA le respondió...
+    team_lines = [(m.author, m.content, m.is_ai) for m in last["team"]]
+    assert ("Bruno Díaz", "propongo que Pedido tenga DetallePedido", False) in team_lines
+    assert ("Bruno Díaz", "(le pregunto a la IA) creá la clase DetallePedido", False) in team_lines
+    assert ("Asistente IA", "Bruno, creé DetallePedido.", True) in team_lines
+    # ...pero NO el propio ida y vuelta de Ana con la IA (ya va en su hilo).
+    assert not any("composición" in c for _, c, _ in team_lines)
+
+
+def test_respuesta_de_mentoria_queda_marcada(client, team, fake_ai):
+    _, behaviour = fake_ai
+    behaviour.update(reply="Bruno, un requerimiento delegado es...", mode=MODE_MENTOR)
+    did = team["diagram_id"]
+    client.post(f"/diagrams/{did}/chat", json={"text": "@IA qué es un requerimiento delegado?"},
+                headers=_h(team["bruno"]))
+    hist = client.get(f"/diagrams/{did}/chat", headers=_h(team["ana"])).json()["items"]
+    assert hist[-1]["role"] == "ASSISTANT" and hist[-1]["ai_mode"] == MODE_MENTOR
+    assert hist[0]["ai_mode"] is None

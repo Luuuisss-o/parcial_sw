@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 
 from google import genai
@@ -35,17 +36,73 @@ MODEL = "gemini-3.5-flash-lite"
 MAX_TOOL_TURNS = 6  # tope de vueltas del loop para evitar bucles infinitos
 REQUEST_TIMEOUT = 45.0  # segundos por llamada; evita que cuelgue indefinidamente
 
-SYSTEM_PROMPT = """Sos el asistente de edicion de un editor colaborativo de \
-diagramas de clases UML. Un disenador de software te da instrucciones en \
-lenguaje natural (por texto o por voz ya transcripta) y vos las ejecutas \
-llamando a las herramientas disponibles para editar el diagrama.
+MODE_AUTO = "AUTO"      # el modelo decide: explicar, editar o ambas
+MODE_MENTOR = "MENTOR"  # consulta teorica: sin herramientas, no toca el diagrama
 
-Como trabajas:
-1. Ejecuta SIEMPRE lo que el usuario pide, usando las herramientas. Sos un \
-   ejecutor: si el pedido nombra los elementos concretos, hacelo sin pedir \
-   confirmacion ni pedir que te lo repitan paso a paso.
-2. Un solo mensaje del usuario puede implicar VARIAS herramientas, y esta \
-   perfecto encadenarlas. Ejemplos que SI debes ejecutar completos:
+# --- Clasificacion de intencion (determinista, sin llamar al modelo) ---------
+# Una consulta "claramente teorica" (empieza preguntando que es / como / por
+# que..., o pide explicar/definir) y SIN verbos de edicion se responde en modo
+# mentor: el modelo no recibe herramientas, asi que no puede modificar el
+# diagrama aunque se equivoque. Todo lo demas va en modo AUTO, donde el
+# modelo puede explicar y/o editar.
+_THEORY_RE = re.compile(
+    r"^\s*[¿¡]?\s*(?:"
+    r"qu[eé]|cu[aá]l(?:es)?|c[oó]mo|por\s*qu[eé]|para\s+qu[eé]|cu[aá]ndo|d[oó]nde|"
+    r"en\s+qu[eé]|es\s+(?:correcto|mejor|buena|bueno|necesario|v[aá]lido)|"
+    r"conviene|deber[ií]a|se\s+puede|puedo|"
+    r"expl[ií]ca(?:me|nos)?|explic[aá](?:me|nos)?|defin[ei]|define|describ[ei]|"
+    r"diferencia|ejemplo|dame\s+un\s+ejemplo|ens[eé][nñ]a(?:me|nos)?|"
+    r"what|why|how|explain"
+    r")\b",
+    re.IGNORECASE,
+)
+_EDIT_RE = re.compile(
+    r"\b(?:"
+    r"cre[aá](?:r|me|la|lo|le)?|agreg[aá](?:r|le|les|me)?|a[nñ]ad[ei](?:r|le)?|"
+    r"pon[eé](?:le|r)?|ponle|elimin[aá](?:r|la|lo)?|borr[aá](?:r|la|lo)?|"
+    r"quit[aá](?:r|le)?|renombr[aá](?:r|la|lo)?|cambi[aá](?:r|le|la)?|"
+    r"relacion[aá](?:r|los|las)?|conect[aá](?:r|los)?|un[ií](?:r|los)?|"
+    r"mov[eé](?:r|la)?|aplic[aá](?:r|la|lo)?|hac[eé](?:la|lo|me)|"
+    r"genera(?:r|me)?|modific[aá](?:r|la)?"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def classify_intent(text: str) -> str:
+    """MODE_MENTOR si la consulta es claramente teorica, MODE_AUTO si no."""
+    if _THEORY_RE.search(text) and not _EDIT_RE.search(text):
+        return MODE_MENTOR
+    return MODE_AUTO
+
+SYSTEM_PROMPT = """Sos el asistente de IA de un editor colaborativo de \
+diagramas de clases UML, y cumplis DOS roles dentro del chat del equipo:
+
+ROL 1 - MENTOR DE DISENO DE SOFTWARE
+Respondes dudas teoricas y de diseno de ingenieria de software: UML \
+(tipos de relacion, multiplicidad, clases de asociacion, herencia vs \
+composicion), patrones de diseno, principios (SOLID, cohesion, \
+acoplamiento), requerimientos (funcionales, no funcionales, delegados, \
+casos de uso), arquitectura, persistencia, metodologias (PUDS/RUP), etc.
+Como mentor:
+- Explica de forma pedagogica y clara, para estudiantes: una definicion \
+  corta, por que importa y un ejemplo concreto. Si el diagrama actual \
+  sirve de ejemplo, usalo ("en su diagrama, Pedido y DetallePedido...").
+- Una pregunta teorica NO modifica el diagrama: no llames herramientas \
+  para responderla. Si ves algo mejorable en el diagrama, sugerilo en \
+  texto y deja que el equipo decida si lo pide.
+- Extension: entre 3 y 10 lineas. Texto plano; podes usar listas con \
+  guiones. Sin titulos ni tablas markdown.
+- Si la pregunta no tiene nada que ver con ingenieria de software, \
+  redirigi amablemente al tema del proyecto.
+
+ROL 2 - EJECUTOR DE EDICIONES DEL DIAGRAMA
+Cuando te piden un cambio concreto, lo ejecutas llamando a las herramientas.
+1. Ejecuta SIEMPRE lo que el usuario pide, usando las herramientas. Si el \
+   pedido nombra los elementos concretos, hacelo sin pedir confirmacion ni \
+   pedir que te lo repitan paso a paso.
+2. Un solo mensaje puede implicar VARIAS herramientas, y esta perfecto \
+   encadenarlas. Ejemplos que SI debes ejecutar completos:
    - "crea la clase Usuario y agregale nombre, ci, contrasena y correo" \
      -> create_class(Usuario) + 4 add_attribute.
    - "crea Cliente y Pedido y relacionalos de uno a muchos" \
@@ -53,34 +110,41 @@ Como trabajas:
    - "a Factura ponele total decimal y fecha date" -> 2 add_attribute.
 3. Si el usuario no aclara el tipo de un atributo, elegi vos el tipo mas \
    razonable (String para nombres/correos/textos, Integer para cantidades, \
-   Double para montos, LocalDate para fechas, Boolean para si/no) y segui \
-   adelante. No frenes para preguntar por algo tan menor.
+   Double para montos, LocalDate para fechas, Boolean para si/no) y segui.
 4. Si el usuario no aclara el tipo de una relacion, usa ASSOCIATION.
+5. Restriccion de la catedra: no disenies el modelo completo por el \
+   usuario. Si te describen un problema de negocio en general y te piden \
+   que vos decidas las clases ("armame el diagrama de una veterinaria"), \
+   no lo construyas: como mentor podes orientar (que preguntas hacerse, \
+   que conceptos suelen aparecer), pero pedile que te indique que clases \
+   quiere crear. Un pedido que YA nombra clases, atributos o relaciones \
+   concretas NO entra en esta restriccion: eso ejecutalo siempre.
+6. Al terminar, confirma en una o dos lineas exactamente que ejecutaste. \
+   Nunca inventes cambios que no hiciste. Si una herramienta devuelve \
+   error, leelo y corregi si podes; si no, explica que paso.
+Un mensaje puede mezclar ambos roles ("que es una composicion? aplicala \
+entre Pedido y Detalle"): explica brevemente y ejecuta lo pedido.
 
-Unica restriccion (requisito de la catedra): no disenies el modelo por el \
-usuario. Es decir, si te describen un problema de negocio en general y te \
-piden que vos decidas que clases y relaciones deberia tener (ej: "armame el \
-diagrama para un sistema de una veterinaria", "diseñame la base de datos de \
-un colegio"), ahi si respondé que vos ejecutas ediciones y que te indique \
-que clases quiere. Ojo: un pedido que YA nombra las clases, atributos o \
-relaciones concretas NO entra en esta restriccion: eso ejecutalo siempre.
-
-Respuesta final: en español, en una o dos lineas, confirmando exactamente \
-que ejecutaste. Nunca inventes cambios que no hiciste. Si una herramienta \
-devuelve error, leelo y corregi si podes (ej. el usuario escribio mal un \
-nombre que se parece a una clase existente); si no podes, explicale al \
-usuario que paso.
-
-Chat grupal (varios usuarios a la vez):
-- Trabajas dentro del chat grupal del diagrama. Varios colaboradores te \
-  escriben y TODOS ven tus respuestas, asi que en cada consulta se te indica \
-  QUIEN te esta preguntando (nombre y email).
+CHAT GRUPAL Y MEMORIA
+- Varios colaboradores te escriben y TODOS ven tus respuestas. En cada \
+  consulta se te indica QUIEN te esta preguntando (nombre y email).
 - Dirigite SIEMPRE a esa persona por su nombre de pila al empezar la \
-  respuesta (ej: "Ana, ya cree la clase Cliente..."). Nunca le respondas a \
-  otro colaborador ni mezcles su pedido con el de otra persona.
-- Si se te pasan consultas previas de esa misma persona, usalas para \
-  entender referencias como "agregale otro atributo" o "esa clase", pero \
-  responde solo a la consulta actual.
+  respuesta (ej: "Ana, una agregacion es..."). Nunca le respondas a otro \
+  colaborador ni ejecutes el pedido de otra persona.
+- Recibis tres niveles de contexto:
+  a) el estado actual del diagrama (contexto global, siempre vigente);
+  b) la conversacion reciente del equipo (contexto global: sirve para \
+     entender de que se esta hablando, decisiones tomadas, o referencias \
+     como "lo que propuso Bruno");
+  c) el hilo de consultas previas de la persona que pregunta (su contexto \
+     individual: resuelve referencias como "agregale otro atributo", \
+     "explicamelo con otro ejemplo" o "esa clase").
+  Responde SOLO a la consulta actual de quien pregunta, apoyandote en su \
+  hilo individual y usando el contexto del equipo y del diagrama como \
+  fondo. Si una referencia es ambigua entre lo que dijo la persona y lo \
+  que dijo otro, prioriza el hilo de la persona.
+
+Responde siempre en español.
 """
 
 
@@ -96,6 +160,7 @@ class Requester:
 class AiCommandResult:
     reply: str
     actions: list[dict] = field(default_factory=list)
+    mode: str = "AUTO"  # MODE_MENTOR si se respondio como mentor, sin herramientas
 
 
 def _describe(actions: list[dict]) -> str:
@@ -119,28 +184,66 @@ def _describe(actions: list[dict]) -> str:
     return ", ".join(partes)
 
 
+@dataclass
+class TeamMessage:
+    """Un mensaje de la conversacion reciente del equipo (contexto global)."""
+    author: str
+    content: str
+    is_ai: bool = False
+    addressed_to: str | None = None
+
+
 def build_prompt(state_json: str, user_text: str, requester: Requester | None = None,
-                 history: list[tuple[str, str]] | None = None) -> str:
-    """Arma el mensaje para el modelo: quien pregunta, su historial con la IA
-    en este diagrama y el estado actual del diagrama."""
+                 history: list[tuple[str, str]] | None = None,
+                 team_context: list[TeamMessage] | None = None,
+                 mode: str = "auto") -> str:
+    """Arma el mensaje para el modelo con la memoria hibrida: quien pregunta,
+    su hilo individual con la IA, la conversacion reciente del equipo y el
+    estado actual del diagrama."""
     partes: list[str] = []
     if requester is not None:
         contacto = f" ({requester.email})" if requester.email else ""
         partes.append(f"Usuario que te consulta: {requester.name}{contacto}")
-        if history:
-            lineas = [f"Consultas previas de {requester.name} en este diagrama (de la mas vieja a la mas nueva):"]
-            for i, (pregunta, respuesta) in enumerate(history, 1):
-                lineas.append(f"{i}. {requester.name} pregunto: {pregunta}")
-                lineas.append(f"   Vos respondiste: {respuesta}")
-            partes.append("\n".join(lineas))
-    partes.append(f"Estado actual del diagrama (JSON):\n{state_json}")
+
+    partes.append(f"[Contexto global] Estado actual del diagrama (JSON):\n{state_json}")
+
+    if team_context:
+        lineas = ["[Contexto global] Conversacion reciente del equipo en el chat (de la mas vieja a la mas nueva):"]
+        for m in team_context:
+            if m.is_ai:
+                destino = f" a {m.addressed_to}" if m.addressed_to else ""
+                lineas.append(f"- Vos (IA) respondiste{destino}: {m.content}")
+            else:
+                lineas.append(f"- {m.author}: {m.content}")
+        partes.append("\n".join(lineas))
+
+    if requester is not None and history:
+        lineas = [f"[Hilo individual] Consultas previas de {requester.name} a la IA (de la mas vieja a la mas nueva):"]
+        for i, (pregunta, respuesta) in enumerate(history, 1):
+            lineas.append(f"{i}. {requester.name} pregunto: {pregunta}")
+            lineas.append(f"   Vos respondiste: {respuesta}")
+        partes.append("\n".join(lineas))
+
+    if mode == MODE_MENTOR:
+        partes.append(
+            "Esta consulta es teorica/conceptual: responde como mentor, sin "
+            "modificar el diagrama (en este turno no tenes herramientas)."
+        )
     quien = f" de {requester.name}" if requester is not None else " del usuario"
-    partes.append(f"Instruccion actual{quien}:\n{user_text}")
+    partes.append(f"Consulta actual{quien} (respondele a esta):\n{user_text}")
     return "\n\n".join(partes)
 
 
 def run_command(db, diagram: Diagram, user_text: str, requester: Requester | None = None,
-                history: list[tuple[str, str]] | None = None) -> AiCommandResult:
+                history: list[tuple[str, str]] | None = None,
+                team_context: list[TeamMessage] | None = None,
+                mode: str | None = None) -> AiCommandResult:
+    """Responde una consulta. `mode`:
+      - MODE_MENTOR: pregunta teorica -> se llama al modelo SIN herramientas,
+        asi es imposible que modifique el diagrama.
+      - MODE_AUTO: el modelo decide (explicar, editar, o ambas).
+    Si no se indica, se clasifica con classify_intent()."""
+    mode = mode or classify_intent(user_text)
     if not settings.GEMINI_API_KEY:
         raise RuntimeError(
             "GEMINI_API_KEY no esta configurada en el backend (.env)."
@@ -150,7 +253,8 @@ def run_command(db, diagram: Diagram, user_text: str, requester: Requester | Non
     executor = DiagramToolExecutor(db, diagram)
 
     state = json.dumps(executor.snapshot(), ensure_ascii=False)
-    prompt = build_prompt(state, user_text, requester=requester, history=history)
+    prompt = build_prompt(state, user_text, requester=requester, history=history,
+                          team_context=team_context, mode=mode)
 
     actions: list[dict] = []
 
@@ -162,19 +266,24 @@ def run_command(db, diagram: Diagram, user_text: str, requester: Requester | Non
         return client.interactions.create(timeout=REQUEST_TIMEOUT, **kwargs)
 
     try:
-        interaction = _ask(
-            model=MODEL,
-            input=prompt,
-            system_instruction=SYSTEM_PROMPT,
-            tools=TOOLS,
-        )
+        first_call = dict(model=MODEL, input=prompt, system_instruction=SYSTEM_PROMPT)
+        if mode != MODE_MENTOR:
+            first_call["tools"] = TOOLS
+        interaction = _ask(**first_call)
     except Exception:
         raise  # nada ejecutado todavia: que el router lo traduzca a un error claro
+
+    if mode == MODE_MENTOR:
+        return AiCommandResult(
+            reply=interaction.output_text
+            or "No pude armar una explicación para eso. ¿Podés reformular la pregunta?",
+            actions=[], mode=MODE_MENTOR,
+        )
 
     for _ in range(MAX_TOOL_TURNS):
         call_steps = [s for s in interaction.steps if s.type == "function_call"]
         if not call_steps:
-            return AiCommandResult(reply=interaction.output_text or "Listo.", actions=actions)
+            return AiCommandResult(reply=interaction.output_text or "Listo.", actions=actions, mode=MODE_AUTO)
 
         function_results = []
         for step in call_steps:

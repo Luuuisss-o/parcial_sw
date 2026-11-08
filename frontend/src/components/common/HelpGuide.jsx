@@ -29,7 +29,7 @@ const PASOS = [
     icon: "sparkles",
     titulo: "4. Conversá con tu equipo y con la IA",
     detalle:
-      "Abrí el «Chat del equipo» abajo a la derecha para hablar con los demás colaboradores en tiempo real. Para pedirle algo al asistente empezá el mensaje con «@IA» (o tocá el botón ✨): «@IA creá una clase Cliente con nombre y email». Todo el equipo ve la pregunta y la respuesta, y la IA te responde a vos por tu nombre.",
+      "Abrí el «Chat del equipo» abajo a la derecha para hablar con los demás colaboradores en tiempo real. Para pedirle algo al asistente empezá el mensaje con «@IA» (o tocá el botón ✨): «@IA creá una clase Cliente con nombre y email». También podés hacerle preguntas teóricas («@IA ¿qué es un requerimiento delegado?»): responde como mentor de diseño sin tocar el diagrama. Todo el equipo ve la pregunta y la respuesta, y la IA te responde a vos por tu nombre.",
   },
   {
     icon: "download",
