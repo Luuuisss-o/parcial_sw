@@ -66,7 +66,10 @@ Si se agota la cuota diaria de `gemini-3.5-flash`, sigue solo con `gemini-3.5-fl
    - mide el **modelo personalizado** con las mismas métricas (para comparar);
    - exporta a GGUF (Q4_K_M ≈ 0.8 GB, o Q8_0 si la versión de Unsloth no lo soporta);
    - lo publica en el backend (`PUT /models/assistant`, usuario con rol `admin`).
-3. (Opcional) La última sección lo sirve desde Colab como API compatible con OpenAI, para que
+3. El progreso queda en Google Drive (`MyDrive/uml_ia/`): línea de base, checkpoints cada 40
+   pasos, modelo entrenado y `.gguf`. Si Colab se desconecta, se vuelve a ejecutar todo en orden y
+   cada paso ya hecho se salta o se retoma desde el último checkpoint.
+4. (Opcional) La última sección lo sirve desde Colab como API compatible con OpenAI, para que
    la web también lo pueda elegir como proveedor (chat → *Modelo* → *Cambiar* → *Colab / vLLM*).
 
 ## En el celular
