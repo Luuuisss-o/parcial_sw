@@ -202,7 +202,17 @@ class _ClassCard extends StatelessWidget {
                 IconButton(
                   icon: const Icon(Icons.delete_outline),
                   onPressed: () async {
-                    await context.read<AppState>().api.deleteClass(umlClass.id);
+                    // Varios toques seguidos mandaban el mismo DELETE: el
+                    // primero borra y los demás daban "Clase no encontrada"
+                    // como excepción sin manejar. Ya borrada = objetivo cumplido.
+                    try {
+                      await context.read<AppState>().api.deleteClass(umlClass.id);
+                    } catch (e) {
+                      if (!'$e'.contains('no encontrada') && context.mounted) {
+                        ScaffoldMessenger.of(context)
+                            .showSnackBar(SnackBar(content: Text('No se pudo borrar la clase: $e')));
+                      }
+                    }
                     onChanged();
                   },
                 ),

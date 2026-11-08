@@ -147,6 +147,15 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
     final text = _input.text.trim();
     if (text.isEmpty || _sending) return;
     final asksAi = mentionsAi(text);
+    // Antes, mientras el modelo cargaba, la consulta se iba al servidor sin
+    // avisar y parecía que respondía el celular. Ahora se espera.
+    if (asksAi && _onDevice && (_modelState == _ModelState.preparing || _modelState == _ModelState.unknown)) {
+      final pct = _modelProgress > 0 && _modelProgress < 1 ? ' (${(_modelProgress * 100).round()} %)' : '';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('La IA del celular todavía se está cargando$pct. Esperá unos segundos y enviá de nuevo.'),
+      ));
+      return;
+    }
     final local = asksAi && _onDevice && _modelState == _ModelState.ready;
     setState(() => _sending = true);
     try {

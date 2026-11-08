@@ -44,7 +44,10 @@ INSIST_ON_TOOLS = (
     "pedido requiere crear, modificar o eliminar algo, llama ahora a las "
     "herramientas necesarias. No confirmes cambios que no ejecutaste."
 )
-NO_CHANGES_REPLY = "No pude aplicar ese cambio en el diagrama. ¿Podés reformular el pedido?"
+NO_CHANGES_REPLY = (
+    "No apliqué ningún cambio en el diagrama: no logré ejecutar ese pedido. "
+    "¿Podés repetirlo o reformularlo?"
+)
 
 MODE_AUTO = "AUTO"      # el modelo decide: explicar, editar o ambas
 MODE_MENTOR = "MENTOR"  # consulta teorica: sin herramientas, no toca el diagrama
@@ -346,8 +349,12 @@ def _run(db, diagram, user_text, requester, history, team_context, mode, solutio
     # edicion y el modelo contesta SIN usar herramientas, suele "confirmar"
     # cambios que nunca hizo (observado con Gemini via la capa OpenAI-
     # compatible, y es comun en modelos locales chicos). Se le avisa una vez
-    # y se le pide que las use; si igual no lo hace, su texto se respeta
-    # (puede estar explicando por que no corresponde editar).
+    # y se le pide que las use. Si igual no lo hace, se reintenta UNA vez en
+    # una sesion limpia (en la misma conversacion el modelo queda "anclado" a
+    # su respuesta anterior: se observo que contestaba "tenes razon, ahi
+    # ejecuto las herramientas" sin ejecutar nada). Si tampoco, NO se publica
+    # su texto -- responde al aviso interno, que el usuario nunca vio, y
+    # suele prometer cambios -- sino un mensaje honesto.
     if not turn.calls and _EDIT_RE.search(user_text):
         logger.info("[AI COMMAND] pedido de edicion sin tool calls: se insiste una vez")
         try:
@@ -355,7 +362,15 @@ def _run(db, diagram, user_text, requester, history, team_context, mode, solutio
         except Exception as e:
             logger.warning(f"[AI COMMAND] fallo al insistir con herramientas: {e}")
             turn = llm_providers.Turn(text="")
-        if not turn.calls and not turn.text:
+        if not turn.calls:
+            logger.info("[AI COMMAND] sigue sin tool calls: reintento en sesion limpia")
+            try:
+                session = llm_providers.open_session(cfg)
+                turn = session.start(sys_prompt, prompt, tools=TOOLS)
+            except Exception as e:
+                logger.warning(f"[AI COMMAND] fallo el reintento: {e}")
+                turn = llm_providers.Turn(text="")
+        if not turn.calls:
             turn = llm_providers.Turn(text=NO_CHANGES_REPLY)
 
     for _ in range(MAX_TOOL_TURNS_SOLUTIONS if solutions_enabled else MAX_TOOL_TURNS):
