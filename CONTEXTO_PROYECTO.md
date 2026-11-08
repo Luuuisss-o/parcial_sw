@@ -114,7 +114,7 @@ FastAPI con capas: `routers/` (HTTP) → `services/`/lógica inline en el router
 | `metodo.py` | `/diagrams` | mismo patrón que atributos, para `methods` |
 | `relacion.py` | `/diagrams` | `POST /diagrams/{id}/relations`, `GET /diagrams/{id}/relations`, `PATCH/DELETE/GET /diagrams/relations/{relation_id}` |
 | `export.py` | `/diagrams` | `POST /diagrams/{id}/export-download` (dispara el pipeline de `exporters/`, ver sección 9) |
-| `ai.py` | `/diagrams` | `POST /diagrams/{id}/ai/command` (asíncrono, `202 Accepted`, usa `BackgroundTasks`). Desde la Fase 2 registra la consulta en el chat del diagrama (es pública) y devuelve `request_id` |
+| `ai.py` | `/diagrams` | `GET/PATCH /diagrams/{id}/ai/settings` (Fase 2: entrega de soluciones, PATCH solo dueño), `POST /diagrams/{id}/ai/command` (asíncrono, `202 Accepted`, usa `BackgroundTasks`). Desde la Fase 2 registra la consulta en el chat del diagrama (es pública) y devuelve `request_id` |
 | `chat.py` | `/diagrams` | `GET /diagrams/{id}/chat?limit=&before_seq=` (historial), `POST /diagrams/{id}/chat` `{text, ask_ai}` (Fase 2: chat grupal + consultas a la IA con `@IA`) |
 | `xmi.py` | `/diagrams` | `GET /diagrams/{id}/export-xmi`, `POST /diagrams/{id}/import-xmi` |
 | `vision.py` | `/vision` | `POST /vision/detect` (sube foto, Gemini transcribe, no crea nada), `POST /vision/apply` (crea el diagrama con lo ya revisado por el usuario) |
@@ -232,6 +232,7 @@ REST vía `api_client.dart` + WebSocket vía `realtime_service.dart`, ambos apun
 4. `8a1c2e4f6b90_add_es_clase_asociacion_to_relacion.py` — agrega `relacion.es_clase_asociacion`.
 5. `b7d3f1a2c9e4_add_chat_message.py` — (Fase 2) crea la tabla `chat_message`.
 6. `c4e8a7d5b1f2_add_ai_mode_to_chat_message.py` — (Fase 2) agrega `chat_message.ai_mode` (`MENTOR`/`AUTO`).
+7. `d2f6b8c3a7e1_add_ai_solutions_enabled_to_diagram.py` — (Fase 2) agrega `diagram.ai_solutions_enabled`.
 
 **Nombre de la base** (diagramador): `parcial_sw` (default de `POSTGRES_DB` en `docker-compose.yml`, configurable por variable de entorno `DB_NAME`).
 
@@ -293,7 +294,7 @@ Confirmado funcionando (probado en esta sesión con Docker real, no solo revisi�
 - **El nombre de campo en las respuestas del backend es inconsistente entre endpoints a propósito conocido, no por error**: algunos devuelven español directo del ORM (`origen_id`, `tipo`, `mult_origen_max`) y otros usan alias en inglés (`from_class`, `type`). El frontend ya maneja ambos casos con `??` en varios lugares. Si se toca esto, hay que revisar TODOS los consumidores (frontend web y, eventualmente, mobile).
 - **Los nombres de clase/atributo se normalizan a identificadores Java válidos únicamente en el pipeline de exportación** (`uml_to_json._normalize_diagram`), nunca en la base de datos ni en el diagrama que ve el usuario en el editor. El diagrama guardado conserva los nombres originales (con espacios, tildes, lo que sea) tal cual los escribió el usuario o los leyó Gemini de una foto.
 - **Puertos fijos y separados entre el diagramador y cualquier backend Spring Boot exportado**, a propósito para poder correr ambos Docker Compose a la vez sin conflicto: diagramador en 5433/8000/5173, backend exportado en 5434/8090.
-- **El asistente de IA (tanto web como el diseño previsto para mobile) nunca genera un diagrama completo desde una descripción de negocio.** Es una restricción explícita de la cátedra: solo ejecuta ediciones puntuales que el usuario ya pidió.
+- **Entrega de soluciones de la IA (web): configurable por diagrama desde la Fase 2.** Por defecto (`diagram.ai_solutions_enabled = false`) rige la regla de la Fase 1: la IA no genera un diagrama completo desde una descripción de negocio, solo ediciones puntuales. El docente pidió en la Fase 2 que la IA pueda "entregar soluciones cuando así se lo requieran" y que sea configurable: el dueño lo activa con `PATCH /diagrams/{id}/ai/settings` (ver `docs/ESPECIFICACION_FASE_2.md`, CU-18). El asistente local de la app móvil mantiene la restricción original.
 - **La detección de foto nunca aplica cambios directo**: siempre hay un paso de revisión humana (`/vision/detect` → frontend → `/vision/apply`) antes de tocar la base de datos.
 - **El timeout de Axios para `/vision/detect` es más largo (90s) que el default global (10s) a propósito**, porque el backend reintenta contra Gemini con backoff y puede tardar más que el default. El timeout de proxy de nginx (100s) es a su vez mayor que el de Axios, también a propósito, para que nginx nunca corte una respuesta que el backend está por mandar.
 

@@ -14,3 +14,13 @@ class AiCommandAccepted(BaseModel):
     # id del mensaje-pregunta en el chat del diagrama: los eventos ai.* y la
     # respuesta (reply_to_id) lo referencian.
     request_id: Optional[UUID] = None
+
+
+class AiSettingsOut(BaseModel):
+    """Configuracion de la IA en un diagrama (la ve todo el equipo)."""
+    solutions_enabled: bool
+
+
+class AiSettingsIn(BaseModel):
+    """Solo el dueño del diagrama puede cambiarla."""
+    solutions_enabled: bool

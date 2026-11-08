@@ -244,6 +244,7 @@ def run_ai_question_background(question_id: UUID) -> None:
             result = ai_assistant.run_command(
                 db, diagram, question_text(question.content), requester=requester,
                 history=history, team_context=team,
+                solutions_enabled=diagram.ai_solutions_enabled,
             )
             reply = address_reply(result.reply, requester.name)
             answer = _save_ai_message(

@@ -22,3 +22,11 @@ export const listChat = (diagramId, { limit = 50, beforeSeq } = {}) =>
 /** Envía un mensaje al chat del diagrama. */
 export const sendChat = (diagramId, text, { askAi = false } = {}) =>
   api.post(`/diagrams/${diagramId}/chat`, { text, ask_ai: askAi }).then((r) => r.data);
+
+/** Configuración de la IA del diagrama: { solutions_enabled }. */
+export const getAiSettings = (diagramId) =>
+  api.get(`/diagrams/${diagramId}/ai/settings`).then((r) => r.data);
+
+/** Solo el dueño: habilita/deshabilita que la IA entregue soluciones de diseño. */
+export const updateAiSettings = (diagramId, settings) =>
+  api.patch(`/diagrams/${diagramId}/ai/settings`, settings).then((r) => r.data);

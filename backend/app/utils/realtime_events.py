@@ -61,6 +61,11 @@ async def notify_ai_error(diagram_id: UUID, detail: str, request_id: str | None 
     })
 
 
+async def notify_ai_settings(diagram_id: UUID, settings: dict):
+    """Cambio en la configuracion de la IA del diagrama (lo hace el dueño)."""
+    await ws_manager.broadcast(str(diagram_id), {"event": "ai.settings", "data": settings})
+
+
 # =========================
 # Chat grupal y presencia
 # =========================

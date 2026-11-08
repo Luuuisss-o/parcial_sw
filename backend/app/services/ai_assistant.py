@@ -34,6 +34,9 @@ logger = logging.getLogger(__name__)
 
 MODEL = "gemini-3.5-flash-lite"
 MAX_TOOL_TURNS = 6  # tope de vueltas del loop para evitar bucles infinitos
+# Con la entrega de soluciones activada una respuesta puede crear varias
+# clases, atributos y relaciones encadenados: se permiten mas vueltas.
+MAX_TOOL_TURNS_SOLUTIONS = 15
 REQUEST_TIMEOUT = 45.0  # segundos por llamada; evita que cuelgue indefinidamente
 
 MODE_AUTO = "AUTO"      # el modelo decide: explicar, editar o ambas
@@ -77,6 +80,15 @@ _EDIT_RE = re.compile(
 )
 
 
+# Dudas en primera persona ("no me acuerdo que es un atributo derivado",
+# ejemplo literal del docente): son consultas teoricas aunque no lleven "?".
+_DOUBT_RE = re.compile(
+    r"\b(?:no\s+me\s+acuerdo|no\s+recuerdo|no\s+entiendo|no\s+s[eé]\s+(?:qu[eé]|c[oó]mo|cu[aá]l|si)|"
+    r"tengo\s+(?:una\s+)?duda|me\s+olvid[eé]|me\s+confunde|no\s+me\s+queda\s+claro)\b",
+    re.IGNORECASE,
+)
+
+
 def classify_intent(text: str) -> str:
     """MODE_MENTOR si la consulta es claramente teorica, MODE_AUTO si no.
 
@@ -84,12 +96,15 @@ def classify_intent(text: str) -> str:
     (lleva "?"), y en ningun caso contiene un verbo de edicion."""
     if _EDIT_RE.search(text):
         return MODE_AUTO
-    if _THEORY_RE.search(text) or "?" in text:
+    if _THEORY_RE.search(text) or _DOUBT_RE.search(text) or "?" in text:
         return MODE_MENTOR
     return MODE_AUTO
 
-SYSTEM_PROMPT = """Sos el asistente de IA de un editor colaborativo de \
-diagramas de clases UML, y cumplis DOS roles dentro del chat del equipo:
+SYSTEM_PROMPT = """Sos un integrante mas del equipo que disena un diagrama \
+de clases UML en un editor colaborativo: actuas como desarrollador senior y \
+moderador del grupo. Los demas integrantes trabajan desde lugares distintos, \
+cada uno con su sesion, sobre el mismo tablero, y te hablan por el chat del \
+equipo. Cumplis DOS roles:
 
 ROL 1 - MENTOR DE DISENO DE SOFTWARE
 Respondes dudas teoricas y de diseno de ingenieria de software: UML \
@@ -124,14 +139,7 @@ Cuando te piden un cambio concreto, lo ejecutas llamando a las herramientas.
    razonable (String para nombres/correos/textos, Integer para cantidades, \
    Double para montos, LocalDate para fechas, Boolean para si/no) y segui.
 4. Si el usuario no aclara el tipo de una relacion, usa ASSOCIATION.
-5. Restriccion de la catedra: no disenies el modelo completo por el \
-   usuario. Si te describen un problema de negocio en general y te piden \
-   que vos decidas las clases ("armame el diagrama de una veterinaria"), \
-   no lo construyas: como mentor podes orientar (que preguntas hacerse, \
-   que conceptos suelen aparecer), pero pedile que te indique que clases \
-   quiere crear. Un pedido que YA nombra clases, atributos o relaciones \
-   concretas NO entra en esta restriccion: eso ejecutalo siempre.
-6. Al terminar, confirma en una o dos lineas exactamente que ejecutaste. \
+{solutions_rule}6. Al terminar, confirma en una o dos lineas exactamente que ejecutaste. \
    Nunca inventes cambios que no hiciste. Si una herramienta devuelve \
    error, leelo y corregi si podes; si no, explica que paso.
 Un mensaje puede mezclar ambos roles ("que es una composicion? aplicala \
@@ -142,6 +150,8 @@ FORMATO (el chat es angosto)
 - Parrafos cortos. Podes usar listas con guiones, **negrita** para \
   resaltar un termino y `codigo` para nombres de clases/atributos/tipos.
 - NO uses titulos (#, ##, ###), separadores (---), tablas ni emojis.
+- Escribi con ortografia correcta del español (tildes y eñe: "diseño", \
+  "construí", "relación"), aunque estas instrucciones no las lleven.
 
 CHAT GRUPAL Y MEMORIA
 - Varios colaboradores te escriben y TODOS ven tus respuestas. En cada \
@@ -164,6 +174,35 @@ CHAT GRUPAL Y MEMORIA
 
 Responde siempre en español.
 """
+
+# Regla 5 del ROL 2, segun la configuracion del diagrama (la elige el dueño).
+SOLUTIONS_RULE_OFF = """5. Entrega de soluciones DESACTIVADA en este diagrama: no disenies el \
+   modelo completo por el usuario. Si te describen un problema de negocio \
+   en general y te piden que vos decidas las clases ("armame el diagrama \
+   de una veterinaria"), no lo construyas: como mentor podes orientar (que \
+   preguntas hacerse, que conceptos suelen aparecer) y aclara que el dueño \
+   del diagrama puede habilitar que entregues soluciones; pedile que te \
+   indique que clases quiere crear. Un pedido que YA nombra clases, \
+   atributos o relaciones concretas NO entra en esta restriccion: eso \
+   ejecutalo siempre.
+"""
+
+SOLUTIONS_RULE_ON = """5. Entrega de soluciones ACTIVADA en este diagrama: si te piden una \
+   solucion ("armame el diagrama de una veterinaria", "resolve la parte de \
+   pagos", "proponé como modelar los turnos"), disenala y construila con \
+   las herramientas como lo haria un desarrollador senior: clases con sus \
+   atributos (tipos razonables) y relaciones con tipo y multiplicidad. \
+   Integrala con lo que ya existe en el diagrama (no dupliques clases) y \
+   respeta las decisiones que el equipo ya tomo en el chat. Mantene la \
+   solucion acotada a lo pedido (tipicamente 3 a 8 clases). Al terminar, \
+   resumi en pocas lineas que construiste y las decisiones clave, para que \
+   el equipo pueda revisarlas y ajustarlas.
+"""
+
+
+def system_prompt(solutions_enabled: bool) -> str:
+    rule = SOLUTIONS_RULE_ON if solutions_enabled else SOLUTIONS_RULE_OFF
+    return SYSTEM_PROMPT.replace("{solutions_rule}", rule)
 
 
 @dataclass
@@ -255,7 +294,7 @@ def build_prompt(state_json: str, user_text: str, requester: Requester | None = 
 def run_command(db, diagram: Diagram, user_text: str, requester: Requester | None = None,
                 history: list[tuple[str, str]] | None = None,
                 team_context: list[TeamMessage] | None = None,
-                mode: str | None = None) -> AiCommandResult:
+                mode: str | None = None, solutions_enabled: bool = False) -> AiCommandResult:
     """Responde una consulta. `mode`:
       - MODE_MENTOR: pregunta teorica -> se llama al modelo SIN herramientas,
         asi es imposible que modifique el diagrama.
@@ -271,6 +310,7 @@ def run_command(db, diagram: Diagram, user_text: str, requester: Requester | Non
     executor = DiagramToolExecutor(db, diagram)
 
     state = json.dumps(executor.snapshot(), ensure_ascii=False)
+    sys_prompt = system_prompt(solutions_enabled)
     prompt = build_prompt(state, user_text, requester=requester, history=history,
                           team_context=team_context, mode=mode)
 
@@ -284,7 +324,7 @@ def run_command(db, diagram: Diagram, user_text: str, requester: Requester | Non
         return client.interactions.create(timeout=REQUEST_TIMEOUT, **kwargs)
 
     try:
-        first_call = dict(model=MODEL, input=prompt, system_instruction=SYSTEM_PROMPT)
+        first_call = dict(model=MODEL, input=prompt, system_instruction=sys_prompt)
         if mode != MODE_MENTOR:
             first_call["tools"] = TOOLS
         interaction = _ask(**first_call)
@@ -298,7 +338,7 @@ def run_command(db, diagram: Diagram, user_text: str, requester: Requester | Non
             actions=[], mode=MODE_MENTOR,
         )
 
-    for _ in range(MAX_TOOL_TURNS):
+    for _ in range(MAX_TOOL_TURNS_SOLUTIONS if solutions_enabled else MAX_TOOL_TURNS):
         call_steps = [s for s in interaction.steps if s.type == "function_call"]
         if not call_steps:
             return AiCommandResult(reply=interaction.output_text or "Listo.", actions=actions, mode=MODE_AUTO)
@@ -331,7 +371,7 @@ def run_command(db, diagram: Diagram, user_text: str, requester: Requester | Non
             interaction = _ask(
                 model=MODEL,
                 input=function_results,
-                system_instruction=SYSTEM_PROMPT,
+                system_instruction=sys_prompt,
                 tools=TOOLS,
                 previous_interaction_id=interaction.id,
             )

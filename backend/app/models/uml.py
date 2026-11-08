@@ -27,6 +27,12 @@ class Diagram(Base):
     owner_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
+    # Fase 2: si la IA puede ENTREGAR SOLUCIONES de diseño completas cuando
+    # se las piden ("armame el diagrama de una veterinaria"). Lo configura el
+    # dueño del diagrama; apagado, rige la regla de la Fase 1 (solo
+    # ediciones puntuales que el usuario ya nombro).
+    ai_solutions_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+
     # Relaciones
     owner: Mapped["User"] = relationship()
     classes: Mapped[List["Clase"]] = relationship(back_populates="diagram", cascade="all, delete-orphan", passive_deletes=True)

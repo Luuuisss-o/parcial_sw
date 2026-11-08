@@ -15,6 +15,7 @@ class DiagramOut(BaseModel):
     updated_at: datetime
     owner_id: int
     owner_email: str
+    ai_solutions_enabled: bool = False
 
     model_config = {"from_attributes": True}
 

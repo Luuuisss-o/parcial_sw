@@ -591,7 +591,12 @@ export default function DiagramDashboard() {
             </div>
           )}
 
-          <ChatPanel diagramId={diagram.id} myEmail={email} />
+          <ChatPanel
+            diagramId={diagram.id}
+            myEmail={email}
+            isOwner={diagram.owner_email === email}
+            aiSolutionsEnabled={!!diagram.ai_solutions_enabled}
+          />
         </main>
 
         {/* ---------------- Panel derecho ---------------- */}

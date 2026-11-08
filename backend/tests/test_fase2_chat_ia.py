@@ -104,10 +104,11 @@ def fake_ai(monkeypatch):
     calls = []
     behaviour = {"reply": "Listo, cree la clase Factura.", "error": None}
 
-    def _run_command(db, diagram, user_text, requester=None, history=None, team_context=None, mode=None):
+    def _run_command(db, diagram, user_text, requester=None, history=None, team_context=None, mode=None,
+                     solutions_enabled=False):
         calls.append({
             "text": user_text, "requester": requester, "history": list(history or []),
-            "team": list(team_context or []),
+            "team": list(team_context or []), "solutions_enabled": solutions_enabled,
         })
         if behaviour["error"]:
             raise behaviour["error"]
@@ -314,6 +315,9 @@ def test_endpoint_ai_command_tambien_es_publico(client, team, fake_ai):
     ("¿podés crear la clase Pago?", MODE_AUTO),
     ("ponele total a Pedido", MODE_AUTO),
     ("armame el diagrama de una veterinaria", MODE_AUTO),
+    # Ejemplo literal del docente (audio de la Fase 2):
+    ("No me acuerdo qué es un atributo derivado", MODE_MENTOR),
+    ("tengo una duda con la multiplicidad", MODE_MENTOR),
 ])
 def test_classify_intent(text, mode):
     assert classify_intent(text) == mode
@@ -454,3 +458,49 @@ def test_ia_ubica_clases_nuevas_sin_superponerlas(client, team):
     for i, a in enumerate(rects):
         for b in rects[i + 1:]:
             assert not (a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]), (a, b)
+
+
+# ---------------------------------------------------------------------------
+# Audio del docente: "la IA va a tener la capacidad de entregar soluciones
+# cuando asi se lo requieran. Eso va a ser configurable".
+# ---------------------------------------------------------------------------
+
+def test_configuracion_entrega_de_soluciones(client, team, fake_ai):
+    calls, _ = fake_ai
+    did = team["diagram_id"]
+    ana, bruno = team["ana"], team["bruno"]
+
+    assert client.get(f"/diagrams/{did}/ai/settings", headers=_h(bruno)).json() == {"solutions_enabled": False}
+    # Un colaborador no puede cambiarla; un extraño ni siquiera verla.
+    assert client.patch(f"/diagrams/{did}/ai/settings", json={"solutions_enabled": True},
+                        headers=_h(bruno)).status_code == 403
+    assert client.get(f"/diagrams/{did}/ai/settings", headers=_h(team["carla"])).status_code == 404
+
+    client.post(f"/diagrams/{did}/chat", json={"text": "@IA armame el diagrama de una veterinaria"}, headers=_h(bruno))
+    assert calls[-1]["solutions_enabled"] is False
+
+    with _ws(client, did, bruno) as ws_bruno:
+        r = client.patch(f"/diagrams/{did}/ai/settings", json={"solutions_enabled": True}, headers=_h(ana))
+        assert r.status_code == 200 and r.json() == {"solutions_enabled": True}
+        ev = _wait(ws_bruno, "ai.settings")
+        assert ev == {"solutions_enabled": True, "changed_by": "Ana Pérez"}
+
+    client.post(f"/diagrams/{did}/chat", json={"text": "@IA armame el diagrama de una veterinaria"}, headers=_h(bruno))
+    assert calls[-1]["solutions_enabled"] is True
+    assert client.get(f"/diagrams/{did}", headers=_h(bruno)).json()["ai_solutions_enabled"] is True
+
+
+def test_prompt_segun_configuracion_y_rol_senior(team, fake_genai):
+    db = SessionLocal()
+    try:
+        d = db.get(Diagram, uuid.UUID(team["diagram_id"]))
+        ai_assistant.run_command(db, d, "armame el diagrama de una veterinaria",
+                                 requester=Requester(1, "Ana Pérez"), solutions_enabled=False)
+        ai_assistant.run_command(db, d, "armame el diagrama de una veterinaria",
+                                 requester=Requester(1, "Ana Pérez"), solutions_enabled=True)
+    finally:
+        db.close()
+    off, on = (c["system_instruction"] for c in fake_genai.calls)
+    assert "desarrollador senior y moderador" in off
+    assert "Entrega de soluciones DESACTIVADA" in off and "soluciones ACTIVADA" not in off
+    assert "Entrega de soluciones ACTIVADA" in on and "{solutions_rule}" not in on

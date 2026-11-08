@@ -13,6 +13,7 @@ import useTeamChat from "../../hooks/useTeamChat";
 import useVoiceRecorder from "../../hooks/useVoiceRecorder";
 import Icon from "../common/Icon";
 import ChatMarkdown from "../common/ChatMarkdown";
+import AiSettingsBar from "./AiSettingsBar";
 
 // Misma paleta y mismo cálculo que el backend (realtime._cursor_color):
 // suma de bytes UTF-8 del email, así el color del autor en el chat coincide
@@ -31,7 +32,7 @@ const SUGERENCIAS = [
   "@IA creá una clase Cliente con nombre, email y teléfono",
   "@IA relacioná Cliente y Pedido de uno a muchos",
   "@IA ¿qué diferencia hay entre agregación y composición?",
-  "@IA ¿qué es un requerimiento delegado?",
+  "@IA no me acuerdo qué es un atributo derivado",
 ];
 
 const initials = (name = "") =>
@@ -186,7 +187,7 @@ function ChatMessage({ m, mine }) {
   );
 }
 
-export default function ChatPanel({ diagramId, myEmail }) {
+export default function ChatPanel({ diagramId, myEmail, isOwner = false, aiSolutionsEnabled = false }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [aiMode, setAiMode] = useState(false);
@@ -319,6 +320,8 @@ export default function ChatPanel({ diagramId, myEmail }) {
           <Icon name="close" size={15} />
         </button>
       </div>
+
+      <AiSettingsBar diagramId={diagramId} isOwner={isOwner} initialEnabled={aiSolutionsEnabled} />
 
       {/* Conversación */}
       <div

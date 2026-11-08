@@ -104,6 +104,7 @@ async def websocket_endpoint(websocket: WebSocket, diagram_id: str):
       presence       -> [{user_id, name, email, color}, ...]      (quienes estan conectados; al entrar/salir alguien)
       chat.message   -> mensaje del chat grupal (ver app/schemas/chat.py), de un colaborador o de la IA
       ai.started / ai.done / ai.error -> progreso de una consulta a la IA, con request_id y requested_by
+      ai.settings    -> {solutions_enabled, changed_by}            (el dueño cambio la configuracion de la IA)
 
     Mensajes que puede mandar el cliente para el cursor en vivo:
       {"action": "cursor", "x": <float>, "y": <float>, "label": "<opcional>"}
