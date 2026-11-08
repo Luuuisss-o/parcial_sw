@@ -1,15 +1,13 @@
 // lib/main.dart
 //
-// La app móvil es un cliente del asistente UAP: se conecta a un backend
-// Spring Boot generado por el diagramador (protocolo UAP, ver lib/uap/) y
-// lo opera por voz o texto. Diseñar diagramas UML se sigue haciendo desde
-// la web (frontend/), no desde el celular -- por eso acá NO hay login del
-// diagramador ni selector de modo: se arranca directo en la pantalla de
-// conexión UAP.
+// Entrada de la app: sin sesión se muestra el login del diagramador; con
+// sesión, el selector de modo (diseñar diagramas -- con el chat del equipo
+// y la IA en el celular -- o usar un sistema generado vía protocolo UAP).
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'app_state.dart';
-import 'screens/uap_connect_screen.dart';
+import 'screens/login_screen.dart';
+import 'screens/mode_selector_screen.dart';
 
 void main() {
   runApp(
@@ -53,6 +51,6 @@ class _BootstrapperState extends State<_Bootstrapper> {
     if (!app.ready) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    return const UapConnectScreen();
+    return app.isLoggedIn ? const ModeSelectorScreen() : const LoginScreen();
   }
 }

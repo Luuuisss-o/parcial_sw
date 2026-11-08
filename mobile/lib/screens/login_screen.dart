@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../app_state.dart';
-import 'diagram_list_screen.dart';
+import 'mode_selector_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -34,7 +34,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await app.auth.signIn(_emailCtrl.text.trim(), _passwordCtrl.text);
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const DiagramListScreen()),
+        MaterialPageRoute(builder: (_) => const ModeSelectorScreen()),
       );
     } catch (e) {
       setState(() => _error = '$e');
