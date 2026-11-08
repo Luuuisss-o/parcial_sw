@@ -95,7 +95,7 @@ docker image prune -f >/dev/null
 
 step "7/7 Verificación"
 for i in $(seq 1 40); do
-  curl -fsS -o /dev/null "https://$DOMAIN/api/docs" && break
+  curl -fs -o /dev/null "https://$DOMAIN/api/docs" && break   # 502 mientras el backend aplica migraciones
   sleep 5
 done
 if curl -fsS -o /dev/null "https://$DOMAIN/api/docs"; then
