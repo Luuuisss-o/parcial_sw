@@ -306,6 +306,14 @@ def test_endpoint_ai_command_tambien_es_publico(client, team, fake_ai):
     ("¿Qué es una composición? aplicala entre Pedido y Detalle", MODE_AUTO),
     ("relacioná Cliente y Pedido de uno a muchos", MODE_AUTO),
     ("hola", MODE_AUTO),
+    # Casos detectados en la prueba con Gemini real:
+    ("¿Pedido debería heredar de Cliente?", MODE_MENTOR),
+    ("explicámelo con un ejemplo de lo que propuso Admin", MODE_MENTOR),
+    ("¿Cliente puede tener muchos pedidos?", MODE_MENTOR),
+    ("¿le agregás email a Cliente?", MODE_AUTO),
+    ("¿podés crear la clase Pago?", MODE_AUTO),
+    ("ponele total a Pedido", MODE_AUTO),
+    ("armame el diagrama de una veterinaria", MODE_AUTO),
 ])
 def test_classify_intent(text, mode):
     assert classify_intent(text) == mode
@@ -421,3 +429,28 @@ def test_respuesta_de_mentoria_queda_marcada(client, team, fake_ai):
     hist = client.get(f"/diagrams/{did}/chat", headers=_h(team["ana"])).json()["items"]
     assert hist[-1]["role"] == "ASSISTANT" and hist[-1]["ai_mode"] == MODE_MENTOR
     assert hist[0]["ai_mode"] is None
+
+
+def test_ia_ubica_clases_nuevas_sin_superponerlas(client, team):
+    """Antes todas las clases creadas por la IA quedaban en (0, 0)."""
+    from app.services.ai_tools import DiagramToolExecutor
+    db = SessionLocal()
+    try:
+        d = db.get(Diagram, uuid.UUID(team["diagram_id"]))
+        ex = DiagramToolExecutor(db, d)
+        for n in ("A", "B", "C"):
+            ex.create_class(name=n)
+        # Coordenadas que se pisan, como las que manda Gemini: se recolocan.
+        ex.create_class(name="D", x_grid=1, y_grid=1)
+        ex.create_class(name="E", x_grid=3, y_grid=1)
+        # Una posicion libre pedida explicitamente se respeta.
+        ex.create_class(name="Fija", x_grid=100, y_grid=100)
+        clases = {c["nombre"]: c for c in ex.snapshot()["clases"]}
+    finally:
+        db.close()
+    assert (clases["Fija"]["x_grid"], clases["Fija"]["y_grid"]) == (100, 100)
+    rects = [(c["x_grid"], c["y_grid"], c["x_grid"] + c["w_grid"], c["y_grid"] + 10)
+             for n, c in clases.items() if n != "Fija"]
+    for i, a in enumerate(rects):
+        for b in rects[i + 1:]:
+            assert not (a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]), (a, b)

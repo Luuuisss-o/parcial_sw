@@ -50,28 +50,41 @@ _THEORY_RE = re.compile(
     r"qu[eé]|cu[aá]l(?:es)?|c[oó]mo|por\s*qu[eé]|para\s+qu[eé]|cu[aá]ndo|d[oó]nde|"
     r"en\s+qu[eé]|es\s+(?:correcto|mejor|buena|bueno|necesario|v[aá]lido)|"
     r"conviene|deber[ií]a|se\s+puede|puedo|"
-    r"expl[ií]ca(?:me|nos)?|explic[aá](?:me|nos)?|defin[ei]|define|describ[ei]|"
+    r"expl[ií]ca(?:me|nos|melo|mela|noslo)?|explic[aá](?:me|nos|melo|mela|noslo)?|"
+    r"defin[ei]|define|describ[ei]|"
     r"diferencia|ejemplo|dame\s+un\s+ejemplo|ens[eé][nñ]a(?:me|nos)?|"
     r"what|why|how|explain"
     r")\b",
     re.IGNORECASE,
 )
+# Verbos de edicion (infinitivo, imperativo tu/vos con o sin pronombre
+# enclitico, y presente voseante "agregás"). Si aparece alguno, la consulta
+# puede pedir un cambio y se usa el modo AUTO.
+_EDIT_STEMS = (
+    "cre", "agreg", "elimin", "borr", "quit", "renombr", "cambi", "relacion",
+    "conect", "aplic", "modific", "gener", "asoci", "vincul", "insert",
+)
 _EDIT_RE = re.compile(
     r"\b(?:"
-    r"cre[aá](?:r|me|la|lo|le)?|agreg[aá](?:r|le|les|me)?|a[nñ]ad[ei](?:r|le)?|"
-    r"pon[eé](?:le|r)?|ponle|elimin[aá](?:r|la|lo)?|borr[aá](?:r|la|lo)?|"
-    r"quit[aá](?:r|le)?|renombr[aá](?:r|la|lo)?|cambi[aá](?:r|le|la)?|"
-    r"relacion[aá](?:r|los|las)?|conect[aá](?:r|los)?|un[ií](?:r|los)?|"
-    r"mov[eé](?:r|la)?|aplic[aá](?:r|la|lo)?|hac[eé](?:la|lo|me)|"
-    r"genera(?:r|me)?|modific[aá](?:r|la)?"
+    r"(?:" + "|".join(_EDIT_STEMS) + r")(?:[aá]r|[aá]s|[aá](?:me|le|les|la|las|lo|los|melo|selo)?)|"
+    r"a[nñ]ad[ei](?:r|le|s)?|a[nñ]ad[ií]s|"
+    r"pon[eé](?:le|les|r|s|la|lo)?|ponle|"
+    r"un[ií](?:r|los|las|s)|mov[eé](?:r|la|lo|s)?|"
+    r"hac[eé](?:la|lo|me|s)|hacela|"
+    r"create|add|delete|remove|rename"
     r")\b",
     re.IGNORECASE,
 )
 
 
 def classify_intent(text: str) -> str:
-    """MODE_MENTOR si la consulta es claramente teorica, MODE_AUTO si no."""
-    if _THEORY_RE.search(text) and not _EDIT_RE.search(text):
+    """MODE_MENTOR si la consulta es claramente teorica, MODE_AUTO si no.
+
+    Teorica = empieza como pregunta/pedido de explicacion, o es una pregunta
+    (lleva "?"), y en ningun caso contiene un verbo de edicion."""
+    if _EDIT_RE.search(text):
+        return MODE_AUTO
+    if _THEORY_RE.search(text) or "?" in text:
         return MODE_MENTOR
     return MODE_AUTO
 
@@ -91,8 +104,7 @@ Como mentor:
 - Una pregunta teorica NO modifica el diagrama: no llames herramientas \
   para responderla. Si ves algo mejorable en el diagrama, sugerilo en \
   texto y deja que el equipo decida si lo pide.
-- Extension: entre 3 y 10 lineas. Texto plano; podes usar listas con \
-  guiones. Sin titulos ni tablas markdown.
+- Extension: entre 3 y 10 lineas.
 - Si la pregunta no tiene nada que ver con ingenieria de software, \
   redirigi amablemente al tema del proyecto.
 
@@ -123,7 +135,13 @@ Cuando te piden un cambio concreto, lo ejecutas llamando a las herramientas.
    Nunca inventes cambios que no hiciste. Si una herramienta devuelve \
    error, leelo y corregi si podes; si no, explica que paso.
 Un mensaje puede mezclar ambos roles ("que es una composicion? aplicala \
-entre Pedido y Detalle"): explica brevemente y ejecuta lo pedido.
+entre Pedido y Detalle"): ejecuta lo pedido y explica en pocas lineas (6 \
+como maximo en total): la idea clave y por que la aplicaste asi.
+
+FORMATO (el chat es angosto)
+- Parrafos cortos. Podes usar listas con guiones, **negrita** para \
+  resaltar un termino y `codigo` para nombres de clases/atributos/tipos.
+- NO uses titulos (#, ##, ###), separadores (---), tablas ni emojis.
 
 CHAT GRUPAL Y MEMORIA
 - Varios colaboradores te escriben y TODOS ven tus respuestas. En cada \
@@ -307,9 +325,13 @@ def run_command(db, diagram: Diagram, user_text: str, requester: Requester | Non
             })
 
         try:
+            # system_instruction se reenvia en cada vuelta: sin esto la
+            # respuesta final (tras ejecutar herramientas) ignoraba las
+            # reglas de formato y extension del prompt.
             interaction = _ask(
                 model=MODEL,
                 input=function_results,
+                system_instruction=SYSTEM_PROMPT,
                 tools=TOOLS,
                 previous_interaction_id=interaction.id,
             )

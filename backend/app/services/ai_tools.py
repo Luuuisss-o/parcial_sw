@@ -129,17 +129,53 @@ class DiagramToolExecutor:
         if existing:
             raise ToolError(f"Ya existe una clase llamada '{name}' en este diagrama.")
 
+        # Las coordenadas que propone el modelo se toman como sugerencia: si
+        # faltan o caen encima de otra clase (Gemini suele mandar posiciones
+        # chicas como (1,1) y (3,1) para clases distintas), se busca un lugar
+        # libre en la grilla.
+        if x_grid is None or y_grid is None or self._overlaps(x_grid, y_grid):
+            x_grid, y_grid = self._free_slot()
         c = Clase(
             nombre=name.strip(),
             diagram_id=self.diagram.id,
-            x_grid=x_grid or 0,
-            y_grid=y_grid or 0,
+            x_grid=x_grid,
+            y_grid=y_grid,
         )
         self.db.add(c)
         self.db.commit()
         self.db.refresh(c)
         _fire(realtime_events.notify_class_created(self.diagram.id, c))
         return {"ok": True, "clase": c.nombre}
+
+    # Tamaño reservado por clase al ubicarla sola: el ancho por defecto (12) y
+    # un alto holgado, porque la tarjeta crece al agregarle atributos.
+    _SLOT_W, _SLOT_H, _SLOT_GAP, _SLOT_COLS = 12, 10, 4, 4
+
+    def _occupied(self) -> list[tuple[int, int, int, int]]:
+        return [
+            (c.x_grid, c.y_grid, c.x_grid + max(c.w_grid, self._SLOT_W), c.y_grid + max(c.h_grid, self._SLOT_H))
+            for c in self.db.query(Clase).filter(Clase.diagram_id == self.diagram.id)
+        ]
+
+    def _overlaps(self, x: int, y: int, rects=None) -> bool:
+        g = self._SLOT_GAP // 2
+        box = (x - g, y - g, x + self._SLOT_W + g, y + self._SLOT_H + g)
+        rects = self._occupied() if rects is None else rects
+        return any(box[0] < r[2] and r[0] < box[2] and box[1] < r[3] and r[1] < box[3] for r in rects)
+
+    def _free_slot(self) -> tuple[int, int]:
+        """Primera celda libre de una grilla imaginaria (de izquierda a derecha
+        y de arriba a abajo) que no se superpone con ninguna clase existente.
+
+        Antes, si el modelo no indicaba coordenadas (lo normal), todas las
+        clases creadas por la IA quedaban en (0, 0), una encima de la otra."""
+        rects = self._occupied()
+        step_x, step_y = self._SLOT_W + self._SLOT_GAP, self._SLOT_H + self._SLOT_GAP
+        for i in range(400):
+            x, y = (i % self._SLOT_COLS) * step_x, (i // self._SLOT_COLS) * step_y
+            if not self._overlaps(x, y, rects):
+                return x, y
+        return 0, (len(rects) // self._SLOT_COLS + 1) * step_y
 
     def rename_class(self, class_name: str, new_name: str) -> dict:
         c = self._find_class(class_name)
@@ -337,8 +373,8 @@ _RAW_TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "Nombre de la clase"},
-                "x_grid": {"type": "integer", "description": "Posicion horizontal en la grilla (opcional)"},
-                "y_grid": {"type": "integer", "description": "Posicion vertical en la grilla (opcional)"},
+                "x_grid": {"type": "integer", "description": "Posicion horizontal en la grilla. Omitir salvo que el usuario pida una ubicacion concreta: el sistema ubica la clase en un lugar libre."},
+                "y_grid": {"type": "integer", "description": "Posicion vertical en la grilla. Omitir salvo que el usuario pida una ubicacion concreta."},
             },
             "required": ["name"],
         },

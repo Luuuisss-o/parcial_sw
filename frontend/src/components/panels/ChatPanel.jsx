@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import useTeamChat from "../../hooks/useTeamChat";
 import useVoiceRecorder from "../../hooks/useVoiceRecorder";
 import Icon from "../common/Icon";
+import ChatMarkdown from "../common/ChatMarkdown";
 
 // Misma paleta y mismo cálculo que el backend (realtime._cursor_color):
 // suma de bytes UTF-8 del email, así el color del autor en el chat coincide
@@ -48,23 +49,6 @@ function formatTime(iso) {
   return d.toDateString() === now.toDateString()
     ? hm
     : `${d.toLocaleDateString([], { day: "2-digit", month: "2-digit" })} ${hm}`;
-}
-
-/** Resalta las menciones "@IA" dentro del texto. */
-function MessageText({ text }) {
-  const parts = [];
-  let last = 0;
-  for (const m of text.matchAll(AI_MENTION_RE)) {
-    if (m.index > last) parts.push(text.slice(last, m.index));
-    parts.push(
-      <span key={m.index} style={{ fontWeight: 700, textDecoration: "underline", textUnderlineOffset: 2 }}>
-        {m[0]}
-      </span>
-    );
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{parts}</span>;
 }
 
 function Avatar({ name, color, size = 26, title }) {
@@ -140,7 +124,7 @@ function ChatMessage({ m, mine }) {
                 Mentoría · no modifica el diagrama
               </div>
             )}
-            <MessageText text={m.content} />
+            <ChatMarkdown text={m.content} />
             {nActions > 0 && (
               <div
                 style={{
@@ -195,7 +179,7 @@ function ChatMessage({ m, mine }) {
               Pregunta a la IA
             </div>
           )}
-          <MessageText text={m.content} />
+          <ChatMarkdown text={m.content} markdown={false} />
         </div>
       </div>
     </div>
