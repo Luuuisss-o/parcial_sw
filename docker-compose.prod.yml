@@ -29,7 +29,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       SEED_DEMO: ${SEED_DEMO:-false}
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://parcial-sw.duckdns.org}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://${DOMAIN}}
       AI_PROVIDER: ${AI_PROVIDER:-}
       AI_BASE_URL: ${AI_BASE_URL:-}
       AI_MODEL: ${AI_MODEL:-}
@@ -48,11 +48,14 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+    environment:
+      DOMAIN: ${DOMAIN:?Definí DOMAIN en .env (ej. mi-uml.duckdns.org)}
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
 
 volumes:
   assistant_models:

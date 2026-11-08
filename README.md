@@ -24,3 +24,8 @@ copy .env.example .env
 ```
 
 Ver detalles de cada subsistema en su propio README.
+
+## Despliegue en producción
+
+Un solo comando en un servidor Ubuntu (AWS EC2) con dominio DuckDNS y HTTPS:
+ver [`docs/DESPLIEGUE.md`](docs/DESPLIEGUE.md) y `deploy/setup_ec2.sh`.

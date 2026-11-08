@@ -1,14 +1,17 @@
 server {
     listen 80;
-    server_name parcial-sw.duckdns.org;
-    return 301 https://$host$request_uri;
+    server_name ${DOMAIN};
+    # Renovación automática del certificado (certbot --webroot, ver deploy/setup_ec2.sh)
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://$host$request_uri; }
 }
 
 server {
     listen 443 ssl;
-    server_name parcial-sw.duckdns.org;
-    ssl_certificate /etc/letsencrypt/live/parcial-sw.duckdns.org/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/parcial-sw.duckdns.org/privkey.pem;
+    http2 on;
+    server_name ${DOMAIN};
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
     root /usr/share/nginx/html;
     index index.html;
     location /api/ {
