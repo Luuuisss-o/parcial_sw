@@ -66,6 +66,9 @@ class ChatMessage(Base):
     # Como respondio la IA: "MENTOR" (explicacion teorica, sin herramientas,
     # no toca el diagrama) o "AUTO" (pudo editar). NULL en mensajes humanos.
     ai_mode: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    # Que modelo genero la respuesta (CU-17): "Gemini (...)", "llama3.2 @ http://...",
+    # o el modelo local de un celular. NULL en mensajes humanos.
+    ai_model_label: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
 
     # Ediciones que la IA aplico sobre el diagrama al responder (si hubo).
     actions: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)

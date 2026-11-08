@@ -30,3 +30,7 @@ export const getAiSettings = (diagramId) =>
 /** Solo el dueño: habilita/deshabilita que la IA entregue soluciones de diseño. */
 export const updateAiSettings = (diagramId, settings) =>
   api.patch(`/diagrams/${diagramId}/ai/settings`, settings).then((r) => r.data);
+
+/** Solo el dueño: prueba el proveedor de IA configurado. → { ok, provider_label, detail } */
+export const testAiSettings = (diagramId) =>
+  api.post(`/diagrams/${diagramId}/ai/settings/test`, null, { timeout: 200000 }).then((r) => r.data);

@@ -185,7 +185,8 @@ def address_reply(reply: str, name: str) -> str:
 
 
 def _save_ai_message(db: Session, question: ChatMessage, role: ChatRole, content: str,
-                     actions: list | None = None, ai_mode: str | None = None) -> ChatMessage:
+                     actions: list | None = None, ai_mode: str | None = None,
+                     model_label: str | None = None) -> ChatMessage:
     msg = ChatMessage(
         diagram_id=question.diagram_id,
         role=role,
@@ -199,6 +200,7 @@ def _save_ai_message(db: Session, question: ChatMessage, role: ChatRole, content
         addressed_to_name=question.author_name,
         actions=actions or None,
         ai_mode=ai_mode,
+        ai_model_label=model_label,
     )
     db.add(msg)
     db.commit()
@@ -249,6 +251,7 @@ def run_ai_question_background(question_id: UUID) -> None:
             reply = address_reply(result.reply, requester.name)
             answer = _save_ai_message(
                 db, question, ChatRole.ASSISTANT, reply, result.actions, ai_mode=result.mode,
+                model_label=getattr(result, "model_label", None),
             )
             publish(diagram.id, answer)
             realtime_events.fire(realtime_events.notify_ai_done(

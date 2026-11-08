@@ -470,7 +470,7 @@ def test_configuracion_entrega_de_soluciones(client, team, fake_ai):
     did = team["diagram_id"]
     ana, bruno = team["ana"], team["bruno"]
 
-    assert client.get(f"/diagrams/{did}/ai/settings", headers=_h(bruno)).json() == {"solutions_enabled": False}
+    assert client.get(f"/diagrams/{did}/ai/settings", headers=_h(bruno)).json()["solutions_enabled"] is False
     # Un colaborador no puede cambiarla; un extraño ni siquiera verla.
     assert client.patch(f"/diagrams/{did}/ai/settings", json={"solutions_enabled": True},
                         headers=_h(bruno)).status_code == 403
@@ -481,9 +481,9 @@ def test_configuracion_entrega_de_soluciones(client, team, fake_ai):
 
     with _ws(client, did, bruno) as ws_bruno:
         r = client.patch(f"/diagrams/{did}/ai/settings", json={"solutions_enabled": True}, headers=_h(ana))
-        assert r.status_code == 200 and r.json() == {"solutions_enabled": True}
+        assert r.status_code == 200 and r.json()["solutions_enabled"] is True
         ev = _wait(ws_bruno, "ai.settings")
-        assert ev == {"solutions_enabled": True, "changed_by": "Ana Pérez"}
+        assert ev["solutions_enabled"] is True and ev["changed_by"] == "Ana Pérez"
 
     client.post(f"/diagrams/{did}/chat", json={"text": "@IA armame el diagrama de una veterinaria"}, headers=_h(bruno))
     assert calls[-1]["solutions_enabled"] is True
@@ -504,3 +504,148 @@ def test_prompt_segun_configuracion_y_rol_senior(team, fake_genai):
     assert "desarrollador senior y moderador" in off
     assert "Entrega de soluciones DESACTIVADA" in off and "soluciones ACTIVADA" not in off
     assert "Entrega de soluciones ACTIVADA" in on and "{solutions_rule}" not in on
+
+
+# ---------------------------------------------------------------------------
+# CU-17: proveedor de IA configurable (Gemini o modelo local OpenAI-compatible)
+# ---------------------------------------------------------------------------
+import json as _json
+
+import httpx
+
+from app.services import llm_providers
+
+
+def _fake_openai_server(monkeypatch, *, script):
+    """Reemplaza el transporte HTTP del proveedor OpenAI-compatible por un
+    servidor falso (como Ollama/LM Studio) que responde segun `script`."""
+    requests = []
+
+    def handler(request: httpx.Request):
+        body = _json.loads(request.content)
+        requests.append({"url": str(request.url), "auth": request.headers.get("authorization"), "body": body})
+        return httpx.Response(200, json={"choices": [{"message": script(body, len(requests))}]})
+
+    real_client = httpx.Client
+    monkeypatch.setattr(
+        llm_providers.httpx, "Client",
+        lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw),
+    )
+    return requests
+
+
+def test_openai_compatible_loop_de_herramientas(team, monkeypatch, client):
+    def script(body, n):
+        if n == 1:  # el modelo local pide crear la clase
+            return {"role": "assistant", "content": None, "tool_calls": [{
+                "id": "c1", "type": "function",
+                "function": {"name": "create_class", "arguments": _json.dumps({"name": "Factura"})},
+            }]}
+        tool_msg = body["messages"][-1]
+        assert tool_msg["role"] == "tool" and tool_msg["tool_call_id"] == "c1"
+        return {"role": "assistant", "content": "Ana, creé la clase Factura."}
+
+    reqs = _fake_openai_server(monkeypatch, script=script)
+    cfg = llm_providers.ProviderConfig(llm_providers.PROVIDER_OPENAI, "llama3.2", "http://localhost:11434/v1", "tok")
+    db = SessionLocal()
+    try:
+        d = db.get(Diagram, uuid.UUID(team["diagram_id"]))
+        r = ai_assistant.run_command(db, d, "creá la clase Factura", requester=Requester(1, "Ana Pérez"), provider=cfg)
+    finally:
+        db.close()
+    assert r.reply == "Ana, creé la clase Factura."
+    assert [a["tool"] for a in r.actions] == ["create_class"]
+    assert r.model_label == "llama3.2 (localhost)"
+    assert reqs[0]["url"] == "http://localhost:11434/v1/chat/completions"
+    assert reqs[0]["auth"] == "Bearer tok"
+    assert reqs[0]["body"]["model"] == "llama3.2"
+    assert reqs[0]["body"]["messages"][0]["role"] == "system"
+    assert reqs[0]["body"]["tools"][0]["type"] == "function"
+
+
+def test_openai_compatible_mentoria_sin_herramientas(team, monkeypatch, client):
+    reqs = _fake_openai_server(monkeypatch, script=lambda b, n: {"role": "assistant", "content": "Ana, es..."})
+    cfg = llm_providers.ProviderConfig(llm_providers.PROVIDER_OPENAI, "qwen2.5", "http://colab.example/v1")
+    db = SessionLocal()
+    try:
+        d = db.get(Diagram, uuid.UUID(team["diagram_id"]))
+        r = ai_assistant.run_command(db, d, "¿qué es un atributo derivado?", requester=Requester(1, "Ana Pérez"),
+                                     provider=cfg)
+    finally:
+        db.close()
+    assert r.mode == MODE_MENTOR
+    assert "tools" not in reqs[0]["body"]
+    assert reqs[0]["auth"] is None
+
+
+def test_configurar_proveedor_local_por_diagrama(client, team, monkeypatch, fake_ai):
+    did = team["diagram_id"]
+    ana, bruno = team["ana"], team["bruno"]
+    url = f"/diagrams/{did}/ai/settings"
+
+    s = client.get(url, headers=_h(bruno)).json()
+    assert s["provider"] == "gemini" and s["provider_is_default"] is True
+
+    # Faltan endpoint/modelo -> 422; un colaborador no puede -> 403; URL invalida -> 422
+    assert client.patch(url, json={"provider": "openai_compatible"}, headers=_h(ana)).status_code == 422
+    assert client.patch(url, json={"provider": "openai_compatible", "base_url": "ftp://x", "model": "m"},
+                        headers=_h(ana)).status_code == 422
+    assert client.patch(url, json={"provider": "gemini"}, headers=_h(bruno)).status_code == 403
+
+    r = client.patch(url, json={"provider": "openai_compatible", "base_url": "http://192.168.0.10:11434/v1/",
+                                "model": "llama3.2", "api_key": "secreto"}, headers=_h(ana))
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["provider"] == "openai_compatible" and out["model"] == "llama3.2"
+    assert out["base_url"] == "http://192.168.0.10:11434/v1"
+    assert out["has_api_key"] is True and "secreto" not in r.text  # el token nunca vuelve
+
+    # Las consultas del chat usan el proveedor del diagrama y la respuesta dice que modelo fue
+    calls, _ = fake_ai
+    used = []
+    real = ai_assistant.run_command
+    monkeypatch.setattr(ai_assistant, "run_command", lambda db, diagram, *a, **k: (
+        used.append(llm_providers.config_for(diagram)), real(db, diagram, *a, **k))[1])
+    client.post(f"/diagrams/{did}/chat", json={"text": "@IA hola"}, headers=_h(bruno))
+    assert used[0].kind == "openai_compatible" and used[0].api_key == "secreto"
+
+    # Volver al proveedor por defecto borra endpoint, modelo y token
+    out = client.patch(url, json={"provider": "default"}, headers=_h(ana)).json()
+    assert out["provider_is_default"] is True and out["has_api_key"] is False and out["base_url"] is None
+
+
+def test_probar_conexion_reporta_error_claro(client, team):
+    did = team["diagram_id"]
+    client.patch(f"/diagrams/{did}/ai/settings", json={"provider": "openai_compatible",
+                 "base_url": "http://127.0.0.1:9/v1", "model": "llama3.2"}, headers=_h(team["ana"]))
+    r = client.post(f"/diagrams/{did}/ai/settings/test", headers=_h(team["ana"])).json()
+    assert r["ok"] is False and "No se pudo conectar" in r["detail"]
+    assert client.post(f"/diagrams/{did}/ai/settings/test", headers=_h(team["bruno"])).status_code == 403
+
+
+def test_si_el_modelo_inventa_cambios_se_le_exige_usar_herramientas(team, monkeypatch, client):
+    """Visto con Gemini real via la capa OpenAI-compatible: respondio "creé la
+    clase Factura" sin llamar a ninguna herramienta (el diagrama no cambio)."""
+    def script(body, n):
+        if n == 1:
+            assert "tool_choice" not in body
+            return {"role": "assistant", "content": "Ana, ya creé la clase Factura."}  # mentira
+        if n == 2:
+            assert body["tool_choice"] == "required"
+            assert "No ejecutaste ninguna herramienta" in body["messages"][-1]["content"]
+            return {"role": "assistant", "content": None, "tool_calls": [{
+                "id": "c1", "type": "function",
+                "function": {"name": "create_class", "arguments": '{"name": "Factura"}'}}]}
+        return {"role": "assistant", "content": "Ana, creé la clase Factura."}
+
+    _fake_openai_server(monkeypatch, script=script)
+    cfg = llm_providers.ProviderConfig(llm_providers.PROVIDER_OPENAI, "llama3.2", "http://localhost:11434/v1")
+    db = SessionLocal()
+    try:
+        d = db.get(Diagram, uuid.UUID(team["diagram_id"]))
+        r = ai_assistant.run_command(db, d, "creá la clase Factura", requester=Requester(1, "Ana Pérez"), provider=cfg)
+        nombres = [c["nombre"] for c in ai_assistant.DiagramToolExecutor(db, d).snapshot()["clases"]]
+    finally:
+        db.close()
+    assert [a["tool"] for a in r.actions] == ["create_class"]
+    assert "Factura" in nombres

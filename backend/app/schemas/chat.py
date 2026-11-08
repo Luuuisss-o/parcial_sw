@@ -37,6 +37,7 @@ class ChatMessageOut(BaseModel):
     addressed_to_id: Optional[int] = None
     addressed_to_name: Optional[str] = None
     ai_mode: Optional[str] = None
+    ai_model_label: Optional[str] = None
     actions: Optional[list] = None
     created_at: datetime
     seq: int

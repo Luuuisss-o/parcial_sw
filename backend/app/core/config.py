@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = ""
     DEBUG: bool = False
     GEMINI_API_KEY: str = ""
+    # Proveedor de IA por defecto del servidor (Fase 2, CU-17). Vacio = Gemini.
+    # "openai_compatible" para un modelo local (Ollama, LM Studio, Colab...).
+    AI_PROVIDER: str = ""
+    AI_BASE_URL: str = ""
+    AI_MODEL: str = ""
+    AI_API_KEY: str = ""
 
     class Config:
         env_file = ".env"

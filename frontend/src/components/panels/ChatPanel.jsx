@@ -98,6 +98,11 @@ function ChatMessage({ m, mine }) {
             <strong style={{ fontSize: 12, color: isError ? "var(--danger)" : "var(--accent)" }}>
               {m.author_name}
             </strong>
+            {m.ai_model_label && (
+              <span style={{ fontSize: 10, color: "var(--text-muted)" }} title="Modelo que generó la respuesta">
+                · {m.ai_model_label}
+              </span>
+            )}
             {m.addressed_to_name && (
               <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
                 responde a <strong style={{ color: "var(--text)" }}>@{m.addressed_to_name}</strong>

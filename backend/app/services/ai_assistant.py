@@ -24,20 +24,27 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-from google import genai
+from google import genai  # noqa: F401  (los tests reemplazan genai.Client)
 
 from app.core.config import settings
 from app.models.uml import Diagram
+from app.services import llm_providers
 from app.services.ai_tools import DiagramToolExecutor, ToolError, TOOLS
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-3.5-flash-lite"
+MODEL = llm_providers.DEFAULT_GEMINI_MODEL
 MAX_TOOL_TURNS = 6  # tope de vueltas del loop para evitar bucles infinitos
 # Con la entrega de soluciones activada una respuesta puede crear varias
 # clases, atributos y relaciones encadenados: se permiten mas vueltas.
 MAX_TOOL_TURNS_SOLUTIONS = 15
-REQUEST_TIMEOUT = 45.0  # segundos por llamada; evita que cuelgue indefinidamente
+
+INSIST_ON_TOOLS = (
+    "No ejecutaste ninguna herramienta, asi que el diagrama NO cambio. Si el "
+    "pedido requiere crear, modificar o eliminar algo, llama ahora a las "
+    "herramientas necesarias. No confirmes cambios que no ejecutaste."
+)
+NO_CHANGES_REPLY = "No pude aplicar ese cambio en el diagrama. ¿Podés reformular el pedido?"
 
 MODE_AUTO = "AUTO"      # el modelo decide: explicar, editar o ambas
 MODE_MENTOR = "MENTOR"  # consulta teorica: sin herramientas, no toca el diagrama
@@ -218,6 +225,7 @@ class AiCommandResult:
     reply: str
     actions: list[dict] = field(default_factory=list)
     mode: str = "AUTO"  # MODE_MENTOR si se respondio como mentor, sin herramientas
+    model_label: str | None = None  # que modelo respondio (CU-17)
 
 
 def _describe(actions: list[dict]) -> str:
@@ -294,19 +302,26 @@ def build_prompt(state_json: str, user_text: str, requester: Requester | None = 
 def run_command(db, diagram: Diagram, user_text: str, requester: Requester | None = None,
                 history: list[tuple[str, str]] | None = None,
                 team_context: list[TeamMessage] | None = None,
-                mode: str | None = None, solutions_enabled: bool = False) -> AiCommandResult:
+                mode: str | None = None, solutions_enabled: bool = False,
+                provider: llm_providers.ProviderConfig | None = None) -> AiCommandResult:
     """Responde una consulta. `mode`:
       - MODE_MENTOR: pregunta teorica -> se llama al modelo SIN herramientas,
         asi es imposible que modifique el diagrama.
       - MODE_AUTO: el modelo decide (explicar, editar, o ambas).
-    Si no se indica, se clasifica con classify_intent()."""
-    mode = mode or classify_intent(user_text)
-    if not settings.GEMINI_API_KEY:
-        raise RuntimeError(
-            "GEMINI_API_KEY no esta configurada en el backend (.env)."
-        )
+    Si no se indica, se clasifica con classify_intent().
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    `provider`: que modelo responde (Gemini, o uno local/OpenAI-compatible,
+    ver llm_providers.py). Por defecto, el configurado para el diagrama."""
+    mode = mode or classify_intent(user_text)
+    cfg = provider or llm_providers.config_for(diagram)
+    result = _run(db, diagram, user_text, requester, history, team_context, mode, solutions_enabled, cfg)
+    result.model_label = cfg.label
+    return result
+
+
+def _run(db, diagram, user_text, requester, history, team_context, mode, solutions_enabled,
+         cfg: llm_providers.ProviderConfig) -> AiCommandResult:
+    session = llm_providers.open_session(cfg)  # valida la config antes de hacer nada
     executor = DiagramToolExecutor(db, diagram)
 
     state = json.dumps(executor.snapshot(), ensure_ascii=False)
@@ -316,67 +331,60 @@ def run_command(db, diagram: Diagram, user_text: str, requester: Requester | Non
 
     actions: list[dict] = []
 
-    def _ask(**kwargs):
-        """Llama al modelo. Si se corta la comunicacion a mitad de un comando,
-        las ediciones ya aplicadas siguen siendo validas (estan commiteadas y
-        ya se emitieron por WebSocket), asi que no se pierden: se devuelven
-        como resultado parcial en vez de propagar el error."""
-        return client.interactions.create(timeout=REQUEST_TIMEOUT, **kwargs)
-
-    try:
-        first_call = dict(model=MODEL, input=prompt, system_instruction=sys_prompt)
-        if mode != MODE_MENTOR:
-            first_call["tools"] = TOOLS
-        interaction = _ask(**first_call)
-    except Exception:
-        raise  # nada ejecutado todavia: que el router lo traduzca a un error claro
+    # Primera llamada: si falla, no se ejecuto nada todavia y el error se
+    # propaga para que el chat lo muestre.
+    turn = session.start(sys_prompt, prompt, tools=None if mode == MODE_MENTOR else TOOLS)
 
     if mode == MODE_MENTOR:
         return AiCommandResult(
-            reply=interaction.output_text
+            reply=turn.text
             or "No pude armar una explicación para eso. ¿Podés reformular la pregunta?",
             actions=[], mode=MODE_MENTOR,
         )
 
-    for _ in range(MAX_TOOL_TURNS_SOLUTIONS if solutions_enabled else MAX_TOOL_TURNS):
-        call_steps = [s for s in interaction.steps if s.type == "function_call"]
-        if not call_steps:
-            return AiCommandResult(reply=interaction.output_text or "Listo.", actions=actions, mode=MODE_AUTO)
+    # Salvaguarda contra respuestas inventadas: si el pedido trae un verbo de
+    # edicion y el modelo contesta SIN usar herramientas, suele "confirmar"
+    # cambios que nunca hizo (observado con Gemini via la capa OpenAI-
+    # compatible, y es comun en modelos locales chicos). Se le avisa una vez
+    # y se le pide que las use; si igual no lo hace, su texto se respeta
+    # (puede estar explicando por que no corresponde editar).
+    if not turn.calls and _EDIT_RE.search(user_text):
+        logger.info("[AI COMMAND] pedido de edicion sin tool calls: se insiste una vez")
+        try:
+            turn = session.insist_on_tools(INSIST_ON_TOOLS)
+        except Exception as e:
+            logger.warning(f"[AI COMMAND] fallo al insistir con herramientas: {e}")
+            turn = llm_providers.Turn(text="")
+        if not turn.calls and not turn.text:
+            turn = llm_providers.Turn(text=NO_CHANGES_REPLY)
 
-        function_results = []
-        for step in call_steps:
-            logger.info(f"[AI TOOL] {step.name} -> {step.arguments}")
+    for _ in range(MAX_TOOL_TURNS_SOLUTIONS if solutions_enabled else MAX_TOOL_TURNS):
+        if not turn.calls:
+            return AiCommandResult(reply=turn.text or "Listo.", actions=actions, mode=MODE_AUTO)
+
+        results = []
+        for call in turn.calls:
+            logger.info(f"[AI TOOL] {call.name} -> {call.arguments}")
             try:
-                fn = getattr(executor, step.name)
-                result = fn(**step.arguments)
-                actions.append({"tool": step.name, "input": step.arguments, "result": result})
+                fn = getattr(executor, call.name, None)
+                if fn is None or call.name.startswith("_"):
+                    raise ToolError(f"La herramienta '{call.name}' no existe.")
+                result = fn(**call.arguments)
+                actions.append({"tool": call.name, "input": call.arguments, "result": result})
                 payload = json.dumps(result, ensure_ascii=False)
             except ToolError as e:
                 payload = json.dumps({"error": str(e)}, ensure_ascii=False)
             except Exception as e:
-                logger.error(f"[AI TOOL] error ejecutando {step.name}: {e}")
+                logger.error(f"[AI TOOL] error ejecutando {call.name}: {e}")
                 payload = json.dumps({"error": f"Error interno: {e}"}, ensure_ascii=False)
-
-            function_results.append({
-                "type": "function_result",
-                "name": step.name,
-                "call_id": step.id,
-                "result": [{"type": "text", "text": payload}],
-            })
+            results.append((call, payload))
 
         try:
-            # system_instruction se reenvia en cada vuelta: sin esto la
-            # respuesta final (tras ejecutar herramientas) ignoraba las
-            # reglas de formato y extension del prompt.
-            interaction = _ask(
-                model=MODEL,
-                input=function_results,
-                system_instruction=sys_prompt,
-                tools=TOOLS,
-                previous_interaction_id=interaction.id,
-            )
+            turn = session.send_tool_results(results)
         except Exception as e:
-            # Se corto la comunicacion, pero lo ejecutado ya esta aplicado.
+            # Las ediciones ya aplicadas siguen siendo validas (estan
+            # commiteadas y emitidas por WebSocket): se informan como
+            # resultado parcial en vez de propagar el error.
             logger.warning(f"[AI COMMAND] corte tras ejecutar {len(actions)} accion(es): {e}")
             hecho = _describe(actions)
             return AiCommandResult(
@@ -430,7 +438,7 @@ _ERROR_MESSAGES: dict[str, str] = {
 
 
 def describe_error(e: Exception) -> str:
-    if isinstance(e, RuntimeError):
+    if isinstance(e, RuntimeError):  # incluye llm_providers.ProviderError
         return str(e)
     return _ERROR_MESSAGES.get(
         type(e).__name__.lower(),

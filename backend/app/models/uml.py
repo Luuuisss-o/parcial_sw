@@ -33,6 +33,15 @@ class Diagram(Base):
     # ediciones puntuales que el usuario ya nombro).
     ai_solutions_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
+    # Fase 2 (CU-17): proveedor de IA del diagrama. NULL = el por defecto del
+    # servidor (Gemini). "openai_compatible" = un modelo local o en Colab
+    # (Ollama, LM Studio, vLLM...) en ai_base_url. El token NUNCA se devuelve
+    # por la API: solo se informa si hay uno guardado.
+    ai_provider: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    ai_base_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    ai_model: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    ai_api_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
     # Relaciones
     owner: Mapped["User"] = relationship()
     classes: Mapped[List["Clase"]] = relationship(back_populates="diagram", cascade="all, delete-orphan", passive_deletes=True)

@@ -518,3 +518,19 @@ TOOLS: list[dict[str, Any]] = [
     }
     for t in _RAW_TOOLS
 ]
+
+
+# Formato OpenAI "chat completions" (lo hablan Ollama, LM Studio, vLLM,
+# llama.cpp server y el endpoint OpenAI-compatible de Gemini): cada tool va
+# envuelta en {"type": "function", "function": {...}}.
+OPENAI_TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": t["name"],
+            "description": t["description"],
+            "parameters": t["input_schema"],
+        },
+    }
+    for t in _RAW_TOOLS
+]
