@@ -1,0 +1,122 @@
+HEALTH
+GET
+http://localhost:8000/health
+AUTH
+POST
+http://localhost:8000/auth/sign-in
+{
+"email": "admin@example.com
+",
+"password": "changeme123"
+}
+DIAGRAMAS
+POST
+http://localhost:8000/diagrams
+{
+"title": "Mi primer diagrama"
+}
+GET (listar)
+http://localhost:8000/diagrams?page=1&limit=20
+GET (uno)
+http://localhost:8000/diagrams/
+<diagram_uuid>
+DELETE
+http://localhost:8000/diagrams/
+<diagram_uuid>
+CLASES
+POST (crear clase en un diagrama)
+http://localhost:8000/diagrams/
+<diagram_uuid>/classes
+{
+"name": "Usuario"
+}
+GET (listar clases de un diagrama)
+http://localhost:8000/diagrams/
+<diagram_uuid>/classes
+PATCH (renombrar clase)
+http://localhost:8000/diagrams/classes/
+<class_uuid>
+{
+"name": "UsuarioRenombrado"
+}
+DELETE (eliminar clase)
+http://localhost:8000/diagrams/classes/
+<class_uuid>
+ATRIBUTOS
+POST (crear atributo en una clase)
+http://localhost:8000/diagrams/classes/
+<class_uuid>/attributes
+{
+"name": "email",
+"type": "string",
+"required": true
+}
+GET (listar atributos de una clase)
+http://localhost:8000/diagrams/classes/
+<class_uuid>/attributes
+PATCH (actualizar atributo)
+http://localhost:8000/diagrams/attributes/
+<attribute_uuid>
+{
+"name": "email",
+"type": "string",
+"required": false
+}
+DELETE (eliminar atributo)
+http://localhost:8000/diagrams/attributes/
+<attribute_uuid>
+MÉTODOS
+POST (crear método en una clase)
+http://localhost:8000/diagrams/classes/
+<class_uuid>/methods
+{
+"name": "login",
+"return_type": "bool"
+}
+GET (listar métodos de una clase)
+http://localhost:8000/diagrams/classes/
+<class_uuid>/methods
+PATCH (actualizar método)
+http://localhost:8000/diagrams/methods/
+<method_uuid>
+{
+"name": "loginV2",
+"return_type": "void"
+}
+DELETE (eliminar método)
+http://localhost:8000/diagrams/methods/
+<method_uuid>
+RELACIONES
+POST (crear relación en un diagrama)
+http://localhost:8000/diagrams/
+<diagram_uuid>/relations
+{
+"from_class": "<class_uuid_origen>",
+"to_class": "<class_uuid_destino>",
+"type": "ASSOCIATION",
+"label": "usa",
+"src_anchor": "right",
+"dst_anchor": "left",
+"src_offset": 0,
+"dst_offset": 0,
+"src_lane": 0,
+"dst_lane": 0
+}
+GET (listar relaciones de un diagrama)
+http://localhost:8000/diagrams/<diagram_uuid>/relations
+PATCH (actualizar relación)
+http://localhost:8000/diagrams/relations/
+<relation_uuid>
+{
+"type": "AGGREGATION",
+"label": "agrega",
+"src_anchor": "bottom",
+"dst_anchor": "top",
+"src_offset": 1,
+"dst_offset": 0,
+"src_lane": 2,
+"dst_lane": 1
+}
+DELETE (eliminar relación)
+http://localhost:8000/diagrams/relations/
+<relation_uuid>

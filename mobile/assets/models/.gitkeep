@@ -1,0 +1,6 @@
+Este directorio existe para que Flutter pueda declarar "assets/models/" en
+pubspec.yaml aunque el modelo GGUF todavia no este descargado.
+
+El archivo assistant.gguf (Gemma 3 1B IT, cuantizado Q4_K_M, ~700-900MB) NO
+se versiona en git -- ver mobile/.gitignore y las instrucciones de descarga
+en mobile/README.md, seccion "Modelo local (Gemma 3 1B)".

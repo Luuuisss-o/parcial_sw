@@ -1,0 +1,55 @@
+package com.test.uap;
+
+import org.springframework.web.bind.annotation.*;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * GET /uap/v1/manifest
+ *
+ * Punto de entrada del protocolo UAP: le dice a cualquier cliente generico
+ * (el asistente de IA local del movil, por ejemplo) que entidades expone
+ * este backend, sin que el cliente tenga que conocer el dominio de
+ * antemano. "generation" identifica la instancia de datos actual -- cambia
+ * si se recrea la base (ver UapGeneration), asi el cliente sabe cuando
+ * invalidar su cache local.
+ */
+@RestController
+@RequestMapping("/uap/v1")
+public class UapManifestController {
+
+    private final UapGeneration.Initializer generationProvider;
+
+    public UapManifestController(UapGeneration.Initializer generationProvider) {
+        this.generationProvider = generationProvider;
+    }
+
+    @GetMapping("/manifest")
+    public Map<String, Object> manifest() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("uapVersion", "1.0");
+        body.put("backendName", "{{ backend_name }}");
+        body.put("generation", generationProvider.currentGeneration());
+        body.put("timezone", "America/La_Paz");
+        body.put("entities", entities());
+        return body;
+    }
+
+    private List<Map<String, Object>> entities() {
+        List<Map<String, Object>> list = new java.util.ArrayList<>();
+{% for e in entities %}
+        {
+            Map<String, Object> entity = new LinkedHashMap<>();
+            entity.put("key", "{{ e.entity_key }}");
+            entity.put("label", "{{ e.class_name }}");
+            entity.put("plural", "{{ e.plural }}");
+            entity.put("aliases", List.of("{{ e.entity_key }}", "{{ e.plural }}"));
+            entity.put("idType", "long");
+            list.add(entity);
+        }
+{% endfor %}
+        return list;
+    }
+}

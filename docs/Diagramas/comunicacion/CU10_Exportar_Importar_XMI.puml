@@ -1,0 +1,64 @@
+@startuml CU10_Exportar_Importar_XMI
+title Communication Diagram — CU-10: Exportar e Importar Diagrama en Formato XMI
+
+' Objetos
+object ":Usuario" as user
+object ":DiagramPage\n(React)" as diagram
+object ":xmi.js\n(API Client)" as xmiApi
+object ":AxiosClient" as axios
+object ":XmiRouter\n(FastAPI)" as router
+object ":Security" as security
+object ":_helpers" as helpers
+object ":XmiService\n(services/xmi.py)" as xmiSvc
+object ":Diagram\n(SQLAlchemy)" as diagramModel
+object ":Clase / Atributo /\nRelacion (ORM)" as orm
+object ":PostgreSQL" as db
+object ":DiagramToolExecutor\n(ai_tools.py)" as executor
+object ":Enterprise Architect\n(External)" as ea
+
+' === EXPORTAR XMI ===
+user --> diagram : 1: click "Exportar XMI"
+diagram --> xmiApi : 1.1: exportXmi(diagramId)
+xmiApi --> axios : 1.2: GET /diagrams/{id}/export-xmi
+axios --> router : 1.3: HTTP GET
+router --> security : 1.4: get_current_user(token)
+router --> helpers : 1.5: get_my_diagram(db, me, diagramId)
+router --> xmiSvc : 1.6: build_xmi(diagram)
+xmiSvc --> orm : 1.7: read diagram.classes,\natributos, metodos, relaciones
+orm --> db : 1.8: SELECT queries
+xmiSvc --> xmiSvc : 1.9: build XMI 2.1 XML\n(UML namespace, EA extensions)
+xmiSvc --> router : 1.10: xml_bytes
+router --> axios : 1.11: HTTP 200 application/xml\nContent-Disposition: attachment\nfilename="diagrama.xmi"
+axios --> xmiApi : 1.12: file download
+xmiApi --> diagram : 1.13: trigger browser download
+user --> ea : 1.14: Publish → Import Package from XMI\n(loads .xmi into EA project)
+
+' === IMPORTAR XMI ===
+user --> ea : 2: exports .xmi from EA project\n(Publish → Export Package to XMI)
+user --> diagram : 2.1: click "Importar XMI"
+diagram --> xmiApi : 2.2: importXmi(diagramId, file)
+xmiApi --> axios : 2.3: POST /diagrams/{id}/import-xmi\n(multipart: .xmi file)
+axios --> router : 2.4: HTTP POST
+router --> security : 2.5: get_current_user(token)
+router --> helpers : 2.6: get_my_diagram(db, me, diagramId)
+router --> xmiSvc : 2.7: parse_xmi(content)
+xmiSvc --> xmiSvc : 2.8: parse XML → extract\nclasses[], attributes[], relations[]
+xmiSvc --> router : 2.9: ParsedXmi(classes, relations, warnings)
+
+router --> executor : 2.10: DiagramToolExecutor(db, diagram)
+
+' Clases (layout en grilla 3 columnas)
+executor --> orm : 2.11: create_class(name, x_grid, y_grid)
+orm --> db : 2.12: INSERT INTO clase
+executor --> orm : 2.13: add_attribute(class, name, type, required)
+orm --> db : 2.14: INSERT INTO atributo
+
+' Relaciones (con dedup contra existentes)
+router --> orm : 2.15: query existing relations\nfor deduplication
+executor --> orm : 2.16: create_relation(from, to, type,\nlabel, multiplicidad)
+orm --> db : 2.17: INSERT INTO relacion
+
+router --> axios : 2.18: HTTP 200 XmiImportSummary\n{classes_created[], classes_skipped[],\nattributes_created, relations_created,\nrelations_skipped, warnings[]}
+axios --> diagram : 2.19: show import summary\n+ refresh diagram
+
+@enduml

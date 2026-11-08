@@ -1,0 +1,40 @@
+@startuml CU01_Iniciar_Sesion
+title Communication Diagram — CU-01: Iniciar Sesión
+
+' Objetos
+object ":Usuario" as user
+object ":LoginPage\n(React)" as loginPage
+object ":auth.js\n(API Client)" as authApi
+object ":AxiosClient" as axios
+object ":Nginx\n(Proxy)" as nginx
+object ":AuthRouter\n(FastAPI)" as authRouter
+object ":Security\n(security.py)" as security
+object ":User\n(SQLAlchemy)" as userModel
+object ":PostgreSQL" as db
+object ":AuthStore\n(zustand)" as authStore
+object ":localStorage" as localStorage
+
+' Mensajes
+user --> loginPage : 1: ingresa email y password
+loginPage --> authApi : 2: signIn(email, password)
+authApi --> axios : 3: POST /auth/sign-in\n{email, password}
+axios --> nginx : 4: HTTP POST /api/auth/sign-in
+nginx --> authRouter : 5: proxy_pass → backend:8000
+authRouter --> userModel : 6: query(User).filter(email)
+userModel --> db : 7: SELECT * FROM "user"\nWHERE email = ?
+db --> userModel : 8: row(User)
+userModel --> authRouter : 9: User instance
+authRouter --> security : 10: verify_password(password, hash)
+security --> authRouter : 11: True / False
+authRouter --> security : 12: create_access_token(sub=email)
+security --> authRouter : 13: JWT token string
+authRouter --> nginx : 14: {access_token, token_type}
+nginx --> axios : 15: HTTP 200 JSON
+axios --> authApi : 16: response.data
+authApi --> loginPage : 17: {access_token, token_type}
+loginPage --> authStore : 18: setToken(access_token)
+authStore --> localStorage : 19: setItem("uml_access_token", token)
+authStore --> localStorage : 20: setItem("uml_email", email)
+loginPage --> user : 21: redirect → "/"
+
+@enduml

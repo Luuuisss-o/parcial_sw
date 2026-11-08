@@ -1,0 +1,67 @@
+{
+  "diagram": {
+    "id": "11111111-1111-1111-1111-111111111111",
+    "title": "Tienda",
+    "classes": [
+      {
+        "id": "c1",
+        "name": "Cliente",
+        "attributes": [
+          {"name": "nombre", "type": "string", "required": true},
+          {"name": "email", "type": "email", "required": true},
+          {"name": "activo", "type": "boolean", "required": false}
+        ],
+        "methods": []
+      },
+      {
+        "id": "c2",
+        "name": "Producto",
+        "attributes": [
+          {"name": "nombre", "type": "string", "required": true},
+          {"name": "precio", "type": "decimal", "required": true},
+          {"name": "stock", "type": "int", "required": true}
+        ],
+        "methods": []
+      },
+      {
+        "id": "c3",
+        "name": "Pedido",
+        "attributes": [
+          {"name": "fecha", "type": "date", "required": true},
+          {"name": "total", "type": "decimal", "required": false}
+        ],
+        "methods": []
+      }
+    ],
+    "relations": [
+      {
+        "from": "Cliente",
+        "from_id": "c1",
+        "to": "Pedido",
+        "to_id": "c3",
+        "type": "ASSOCIATION",
+        "from_min": 1,
+        "from_max": 1,
+        "to_min": 0,
+        "to_max": null,
+        "label": "",
+        "role_from": "cliente",
+        "role_to": "pedidos"
+      },
+      {
+        "from": "Pedido",
+        "from_id": "c3",
+        "to": "Producto",
+        "to_id": "c2",
+        "type": "ASSOCIATION",
+        "from_min": 0,
+        "from_max": null,
+        "to_min": 0,
+        "to_max": null,
+        "label": "",
+        "role_from": "pedidos",
+        "role_to": "productos"
+      }
+    ]
+  }
+}

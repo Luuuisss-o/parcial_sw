@@ -1,0 +1,28 @@
+package com.test.uap;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+
+import java.util.TimeZone;
+
+/**
+ * Fuerza America/La_Paz en el ObjectMapper de Jackson, ademas de lo que ya
+ * se configura en application.properties (spring.jackson.time-zone). Se
+ * duplica a proposito: application.properties cubre el caso comun, pero si
+ * algun @Bean propio del proyecto llegara a construir su propio
+ * ObjectMapper sin pasar por la autoconfiguracion de Spring Boot, este
+ * @Primary sigue garantizando la zona horaria correcta.
+ */
+@Configuration
+public class JacksonTimeZoneConfig {
+
+    @Bean
+    @Primary
+    public ObjectMapper objectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.setTimeZone(TimeZone.getTimeZone("America/La_Paz"));
+        return mapper;
+    }
+}

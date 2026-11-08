@@ -1,0 +1,45 @@
+package com.test.controllers;
+
+import org.springframework.web.bind.annotation.*;
+import java.util.List;
+import java.util.Optional;
+
+import com.test.models.{{ class_name }};
+import com.test.services.{{ class_name }}Service;
+
+@RestController
+@RequestMapping("/api/{{ class_name | lower }}s")
+public class {{ class_name }}Controller {
+
+    private final {{ class_name }}Service service;
+
+    public {{ class_name }}Controller({{ class_name }}Service service) {
+        this.service = service;
+    }
+
+    @GetMapping
+    public List<{{ class_name }}> getAll() {
+        return service.findAll();
+    }
+
+    @GetMapping("/{id}")
+    public Optional<{{ class_name }}> getById(@PathVariable Long id) {
+        return service.findById(id);
+    }
+
+    @PostMapping
+    public {{ class_name }} create(@RequestBody {{ class_name }} entity) {
+        return service.save(entity);
+    }
+
+    @PutMapping("/{id}")
+    public {{ class_name }} update(@PathVariable Long id, @RequestBody {{ class_name }} entity) {
+        entity.setId(id);
+        return service.save(entity);
+    }
+
+    @DeleteMapping("/{id}")
+    public void delete(@PathVariable Long id) {
+        service.delete(id);
+    }
+}

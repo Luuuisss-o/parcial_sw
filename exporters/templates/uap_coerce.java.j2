@@ -1,0 +1,142 @@
+package com.test.uap;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.Locale;
+
+/**
+ * Coerciona un valor JSON crudo (llegado como Object desde Jackson: puede
+ * ser String, Integer, Double, Boolean o Map segun lo que el cliente haya
+ * mandado) al tipo Java que el schema de la entidad declara. Es el espejo
+ * server-side de la coercion que ya hace el cliente movil antes de mandar
+ * el invoke: nunca hay que confiar en que el cliente mando el tipo
+ * correcto, porque un LLM (aunque sea el que corre en el propio movil)
+ * puede mandar "25000" en vez de 25000, o "sí" en vez de true.
+ *
+ * Ninguno de estos metodos lanza una excepcion "fea" (NumberFormatException
+ * cruda, etc.): un valor que no se puede convertir devuelve null, y el
+ * dispatcher que llama a esto simplemente no setea ese campo -- se prefiere
+ * "el campo quedo con su valor anterior/default" antes que romper toda la
+ * operacion por un campo secundario mal formado, siguiendo el mismo
+ * criterio que ya usa diagram_vision.py del lado del backend FastAPI
+ * (descartar un valor con formato raro en vez de tirar abajo todo el
+ * import).
+ */
+public final class UapCoerce {
+
+    private UapCoerce() {}
+
+    public static String asString(Object raw) {
+        return raw == null ? null : String.valueOf(raw);
+    }
+
+    public static Integer asInteger(Object raw) {
+        if (raw == null) return null;
+        if (raw instanceof Number) return ((Number) raw).intValue();
+        try {
+            return Integer.parseInt(normalizeNumberString(String.valueOf(raw)).split("\\.")[0]);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    public static Long asLong(Object raw) {
+        if (raw == null) return null;
+        if (raw instanceof Number) return ((Number) raw).longValue();
+        try {
+            return Long.parseLong(normalizeNumberString(String.valueOf(raw)).split("\\.")[0]);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    public static Double asDouble(Object raw) {
+        if (raw == null) return null;
+        if (raw instanceof Number) return ((Number) raw).doubleValue();
+        try {
+            return Double.parseDouble(normalizeNumberString(String.valueOf(raw)));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    public static BigDecimal asBigDecimal(Object raw) {
+        if (raw == null) return null;
+        if (raw instanceof BigDecimal) return (BigDecimal) raw;
+        if (raw instanceof Number) return BigDecimal.valueOf(((Number) raw).doubleValue());
+        try {
+            return new BigDecimal(normalizeNumberString(String.valueOf(raw)));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    public static Boolean asBoolean(Object raw) {
+        if (raw == null) return null;
+        if (raw instanceof Boolean) return (Boolean) raw;
+        String s = String.valueOf(raw).trim().toLowerCase(Locale.ROOT);
+        if (s.equals("true") || s.equals("1") || s.equals("si") || s.equals("sí")
+                || s.equals("verdadero") || s.equals("activo")) {
+            return true;
+        }
+        if (s.equals("false") || s.equals("0") || s.equals("no")
+                || s.equals("falso") || s.equals("inactivo")) {
+            return false;
+        }
+        return null;
+    }
+
+    public static LocalDate asLocalDate(Object raw) {
+        if (raw == null) return null;
+        String s = String.valueOf(raw).trim();
+        try {
+            return LocalDate.parse(s); // ISO yyyy-MM-dd
+        } catch (Exception ignored) {
+        }
+        try {
+            String[] parts = s.split("/");
+            if (parts.length == 3) {
+                return LocalDate.of(Integer.parseInt(parts[2]), Integer.parseInt(parts[1]), Integer.parseInt(parts[0]));
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    public static LocalDateTime asLocalDateTime(Object raw) {
+        if (raw == null) return null;
+        String s = String.valueOf(raw).trim();
+        try {
+            return LocalDateTime.parse(s);
+        } catch (Exception ignored) {
+        }
+        try {
+            return asLocalDate(raw) != null ? asLocalDate(raw).atStartOfDay() : null;
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    // "25,000" / "25.000" (miles) / "2500.50" (decimal) -> string numerico
+    // parseable por Integer/Long/Double/BigDecimal. Regla: si aparecen
+    // AMBOS separadores, el ultimo que aparece es el decimal (formato
+    // latino tipico: "1.234,56"); si aparece uno solo y tiene mas de 2
+    // digitos despues, se trata como separador de miles y se descarta.
+    private static String normalizeNumberString(String raw) {
+        String s = raw.trim();
+        boolean hasComma = s.contains(",");
+        boolean hasDot = s.contains(".");
+        if (hasComma && hasDot) {
+            if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+                s = s.replace(".", "").replace(",", ".");
+            } else {
+                s = s.replace(",", "");
+            }
+        } else if (hasComma) {
+            int decimals = s.length() - s.lastIndexOf(',') - 1;
+            s = decimals <= 2 ? s.replace(",", ".") : s.replace(",", "");
+        }
+        return s;
+    }
+}

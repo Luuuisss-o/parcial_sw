@@ -1,0 +1,169 @@
+package com.test.uap;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+{% for e in entities %}
+import com.test.models.{{ e.class_name }};
+import com.test.services.{{ e.class_name }}Service;
+{% endfor %}
+
+/**
+ * Despacha POST /uap/v1/tools/{toolId}/invoke hacia el Service concreto de
+ * cada entidad. Deliberadamente sin ninguna forma de reflexion Java (nada
+ * de resolver clases o metodos dinamicamente por nombre en runtime): cada
+ * "case" de este switch es codigo Java literal, escrito por el generador
+ * en tiempo de build a partir del mismo diagrama que ya genera las
+ * entidades/servicios. Un toolId o un campo que no aparezca en este
+ * archivo simplemente no existe -- se rechaza antes de tocar la base,
+ * nunca se intenta resolver dinamicamente.
+ *
+ * Idempotencia: create_* guarda un mapa en memoria clientRecordId -> id
+ * generado. Si el cliente reintenta la misma operacion (mismo
+ * clientRecordId, tipico de una cola offline en el movil que no supo si el
+ * primer intento llego a destino), se devuelve el mismo id sin crear una
+ * fila nueva. Es un mapa en memoria (no una tabla) a proposito: mantenerlo
+ * simple para este alcance; se pierde si el proceso reinicia, lo cual en
+ * el peor caso hace que un reintento MUY tardio despues de un restart cree
+ * una fila duplicada -- aceptable para el examen, documentado en el README
+ * generado.
+ */
+@Component
+public class UapToolDispatcher {
+
+{% for e in entities %}
+    private final {{ e.class_name }}Service {{ e.entity_key }}Service;
+{% endfor %}
+    private final Map<String, Long> idempotencyCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public UapToolDispatcher(
+{% for e in entities %}
+            {{ e.class_name }}Service {{ e.entity_key }}Service{{ "," if not loop.last }}
+{% endfor %}
+    ) {
+{% for e in entities %}
+        this.{{ e.entity_key }}Service = {{ e.entity_key }}Service;
+{% endfor %}
+    }
+
+    // Registra el cambio en UapChangeLog (el cursor de sync/changes) via
+    // EntityManager directo en vez de un JpaRepository propio: es una sola
+    // linea de escritura desde un solo lugar (este dispatcher), no
+    // justifica generar un repository entero solo para esto.
+    private void logChange(String entityKey, Long serverId, String op) {
+        entityManager.persist(new UapChangeLog(entityKey, serverId, op));
+    }
+
+    @Transactional
+    public ResponseEntity<Object> invoke(String toolId, Map<String, Object> body) {
+        String clientRecordId = body.get("clientRecordId") != null ? String.valueOf(body.get("clientRecordId")) : null;
+        Object rawInput = body.get("input");
+        Map<String, Object> input = (rawInput instanceof Map) ? (Map<String, Object>) rawInput : Map.of();
+
+        switch (toolId) {
+{% for e in entities %}
+            case "create_{{ e.entity_key }}": {
+                if (clientRecordId != null && idempotencyCache.containsKey(clientRecordId)) {
+                    return ok(Map.of("ok", true, "id", idempotencyCache.get(clientRecordId), "idempotent", true));
+                }
+                Set<String> allowed = Set.of({{ e.writable_fields | map(attribute='name') | map('tojson') | join(', ') }});
+                ResponseEntity<Object> rejected = rejectUnknownFields(input, allowed);
+                if (rejected != null) return rejected;
+
+                {{ e.class_name }} entity = new {{ e.class_name }}();
+{% for f in e.writable_fields %}
+                if (input.containsKey("{{ f.name }}")) {
+                    entity.{{ f.setter }}(UapCoerce.{{ f.coerce_method }}(input.get("{{ f.name }}")));
+                }
+{% endfor %}
+                {{ e.class_name }} saved = {{ e.entity_key }}Service.save(entity);
+                if (clientRecordId != null) idempotencyCache.put(clientRecordId, saved.{{ e.id_field.getter }}());
+                logChange("{{ e.entity_key }}", saved.{{ e.id_field.getter }}(), "CREATE");
+                return ok(Map.of("ok", true, "{{ e.entity_key }}", saved));
+            }
+            case "list_{{ e.entity_key }}": {
+                List<{{ e.class_name }}> all = {{ e.entity_key }}Service.findAll();
+                return ok(Map.of("ok", true, "{{ e.plural }}", all, "count", all.size()));
+            }
+            case "get_{{ e.entity_key }}": {
+                Long id = UapCoerce.asLong(input.get("{{ e.id_field.name }}"));
+                if (id == null) return badRequest("falta el campo requerido: {{ e.id_field.name }}");
+                Optional<{{ e.class_name }}> found = {{ e.entity_key }}Service.findById(id);
+                if (found.isEmpty()) return notFound("no existe {{ e.entity_key }} con id " + id);
+                return ok(Map.of("ok", true, "{{ e.entity_key }}", found.get()));
+            }
+            case "update_{{ e.entity_key }}": {
+                Long id = UapCoerce.asLong(input.get("{{ e.id_field.name }}"));
+                if (id == null) return badRequest("falta el campo requerido: {{ e.id_field.name }}");
+                Optional<{{ e.class_name }}> existing = {{ e.entity_key }}Service.findById(id);
+                if (existing.isEmpty()) return notFound("no existe {{ e.entity_key }} con id " + id);
+
+                Set<String> allowedUpdate = Set.of({{ e.writable_fields | map(attribute='name') | map('tojson') | join(', ') }});
+                ResponseEntity<Object> rejectedUpdate = rejectUnknownFields(input, allowedUpdate);
+                if (rejectedUpdate != null) return rejectedUpdate;
+
+                {{ e.class_name }} entity = existing.get();
+{% for f in e.writable_fields %}
+                if (input.containsKey("{{ f.name }}")) {
+                    entity.{{ f.setter }}(UapCoerce.{{ f.coerce_method }}(input.get("{{ f.name }}")));
+                }
+{% endfor %}
+                {{ e.class_name }} saved = {{ e.entity_key }}Service.save(entity);
+                logChange("{{ e.entity_key }}", saved.{{ e.id_field.getter }}(), "UPDATE");
+                return ok(Map.of("ok", true, "{{ e.entity_key }}", saved));
+            }
+            case "delete_{{ e.entity_key }}": {
+                Long id = UapCoerce.asLong(input.get("{{ e.id_field.name }}"));
+                if (id == null) return badRequest("falta el campo requerido: {{ e.id_field.name }}");
+                Optional<{{ e.class_name }}> existing = {{ e.entity_key }}Service.findById(id);
+                if (existing.isEmpty()) return notFound("no existe {{ e.entity_key }} con id " + id);
+                {{ e.entity_key }}Service.delete(id);
+                logChange("{{ e.entity_key }}", id, "DELETE");
+                return ok(Map.of("ok", true, "deleted", id));
+            }
+{% endfor %}
+            default:
+                return notFound("toolId desconocido: " + toolId + ". Tools disponibles: " + knownToolIds());
+        }
+    }
+
+    private String knownToolIds() {
+        return String.join(", ", List.of(
+{% for t in tools %}
+            "{{ t.tool_id }}"{{ "," if not loop.last }}
+{% endfor %}
+        ));
+    }
+
+    private ResponseEntity<Object> rejectUnknownFields(Map<String, Object> input, Set<String> allowed) {
+        for (String key : input.keySet()) {
+            if (!allowed.contains(key)) {
+                return badRequest("campo desconocido: " + key + ". Campos validos: " + String.join(", ", allowed));
+            }
+        }
+        return null;
+    }
+
+    private ResponseEntity<Object> ok(Object body) {
+        return ResponseEntity.ok(body);
+    }
+
+    private ResponseEntity<Object> badRequest(String message) {
+        return ResponseEntity.badRequest().body(Map.of("error", message));
+    }
+
+    private ResponseEntity<Object> notFound(String message) {
+        return ResponseEntity.status(404).body(Map.of("error", message));
+    }
+}

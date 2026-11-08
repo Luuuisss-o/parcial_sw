@@ -1,0 +1,88 @@
+@startuml CU12_Colaborar_Tiempo_Real
+title Communication Diagram — CU-12: Colaborar en Tiempo Real sobre el Diagrama
+
+' Objetos
+object ":Usuario A" as userA
+object ":Frontend A\n(React)" as frontA
+object ":useDiagramLocks\n(Hook)" as locksHook
+object ":useLiveCursors\n(Hook)" as cursorsHook
+object ":realtime.js\n(API Client)" as realtimeApi
+object ":WebSocket\n(Browser)" as wsClientA
+object ":Nginx\n(Proxy WS)" as nginx
+object ":RealtimeRouter\n(FastAPI)" as router
+object ":Security\n(decode_token)" as security
+object ":User / Diagram /\nCollaborator (ORM)" as orm
+object ":PostgreSQL" as db
+object ":WSManager" as wsManager
+object ":LockManager" as lockMgr
+object ":WebSocket\n(Browser B)" as wsClientB
+object ":Frontend B\n(React)" as frontB
+object ":Usuario B" as userB
+
+' === Conexión WebSocket ===
+userA --> frontA : 1: abre /diagram/{id}
+frontA --> realtimeApi : 1.1: connect(diagramId, token)
+realtimeApi --> wsClientA : 1.2: new WebSocket(\n"/diagrams/{id}/ws?token=JWT")
+wsClientA --> nginx : 1.3: WS Upgrade
+nginx --> router : 1.4: proxy_pass WebSocket
+router --> security : 1.5: decode_token(query.token)\n→ verify kind="access"
+security --> router : 1.6: (email, name)
+router --> orm : 1.7: verify User.active\n+ Diagram access (owner/collaborator)
+orm --> db : 1.8: SELECT queries
+router --> wsManager : 1.9: connect(diagramId, websocket)
+router --> wsClientA : 1.10: {event: "connected",\ndata: {conn_id}}
+router --> lockMgr : 1.11: snapshot(diagramId)
+lockMgr --> router : 1.12: {class_id: {email, conn_id}, ...}
+router --> wsClientA : 1.13: {event: "locks.snapshot", data}
+
+' === Lock de clase (exclusión mutua) ===
+userA --> frontA : 2: click en ClassCard para editar
+frontA --> locksHook : 2.1: requestLock(classId)
+locksHook --> wsClientA : 2.2: send({action: "lock",\nclass_id: uuid})
+wsClientA --> router : 2.3: JSON message
+router --> lockMgr : 2.4: acquire(diagramId,\nclassId, email, ws)
+lockMgr --> router : 2.5: True (acquired)
+router --> wsManager : 2.6: broadcast(diagramId,\n{event: "class.locked",\ndata: {class_id, email, conn_id}})
+wsManager --> wsClientA : 2.7: class.locked event
+wsManager --> wsClientB : 2.8: class.locked event
+frontB --> frontB : 2.9: mark class as locked\n(disabled, show lock icon + email)
+
+' === Lock denegado ===
+userB --> frontB : 3: intenta editar misma clase
+frontB --> wsClientB : 3.1: send({action: "lock",\nclass_id: uuid})
+wsClientB --> router : 3.2: JSON message
+router --> lockMgr : 3.3: acquire() → False\n(already locked by A)
+router --> wsClientB : 3.4: {event: "lock.denied",\ndata: {class_id,\nlocked_by: emailA,\nlocked_by_conn_id}}
+frontB --> userB : 3.5: show "Locked by emailA"
+
+' === Unlock de clase ===
+userA --> frontA : 4: deselecciona clase
+frontA --> locksHook : 4.1: releaseLock(classId)
+locksHook --> wsClientA : 4.2: send({action: "unlock",\nclass_id: uuid})
+wsClientA --> router : 4.3: JSON message
+router --> lockMgr : 4.4: release(diagramId,\nclassId, ws) → True
+router --> wsManager : 4.5: broadcast(diagramId,\n{event: "class.unlocked",\ndata: {class_id}})
+wsManager --> wsClientB : 4.6: class.unlocked event
+frontB --> frontB : 4.7: re-enable class for editing
+
+' === Cursores en vivo ===
+userA --> frontA : 5: mueve mouse sobre el lienzo
+frontA --> cursorsHook : 5.1: sendCursor(x_world, y_world)
+cursorsHook --> wsClientA : 5.2: send({action: "cursor",\nx, y, label})
+wsClientA --> router : 5.3: JSON message
+router --> router : 5.4: _cursor_color(email)\n→ color estable por checksum
+router --> wsManager : 5.5: broadcast(diagramId,\n{event: "cursor.move",\ndata: {conn_id, name, color, x, y}},\nexclude=wsA)
+wsManager --> wsClientB : 5.6: cursor.move event
+frontB --> frontB : 5.7: render cursor pointer\nwith name + color
+
+' === Desconexión ===
+userA --> frontA : 6: cierra pestaña
+wsClientA --> router : 6.1: WebSocketDisconnect
+router --> wsManager : 6.2: disconnect(diagramId, ws)
+router --> lockMgr : 6.3: release_all_for(diagramId, ws)\n→ [freed class_ids]
+router --> wsManager : 6.4: broadcast "class.unlocked"\nfor each freed class
+router --> wsManager : 6.5: broadcast {event: "cursor.left",\ndata: {conn_id}}
+wsManager --> wsClientB : 6.6: cursor.left + class.unlocked
+frontB --> frontB : 6.7: remove cursor A\n+ unlock freed classes
+
+@enduml

@@ -1,0 +1,46 @@
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+frontend/dist/
+
+# Generated exporter output
+exporters/output/
+exporters/json/
+# Proyectos Spring Boot descomprimidos localmente para probar un export puntual
+generated_backend/
+generated_backend_test/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs de servidores de desarrollo local
+*.log
+
+# Backups locales (dumps de base de datos, proyectos de prueba)
+backups/
+
+# Cache/metadata de herramientas locales (no es código del proyecto)
+.atl/
+
+# Config de MCP servers para asistentes de IA: tiene rutas absolutas
+# específicas de cada máquina (ej. la instalación local de Enterprise
+# Architect), no portable entre desarrolladores.
+.agents/
+opencode.jsonc
+
+# Enterprise Architect: lock file temporal, se regenera solo al abrir el proyecto
+*.ldb

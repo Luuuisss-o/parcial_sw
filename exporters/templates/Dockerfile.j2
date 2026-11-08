@@ -1,0 +1,16 @@
+FROM maven:3.9-eclipse-temurin-17 AS build
+WORKDIR /build
+COPY pom.xml ./
+COPY src ./src
+RUN mvn -q -DskipTests package
+
+FROM eclipse-temurin:17-jre
+WORKDIR /app
+# Bolivia: UTC-04:00 fijo, sin horario de verano. Se fija a nivel de JVM
+# ademas de en application.properties, para que cualquier codigo que use
+# la zona horaria "default" del sistema (en vez de pasarla explicita) se
+# comporte igual.
+ENV TZ=America/La_Paz
+COPY --from=build /build/target/{{ artifactId }}-0.0.1-SNAPSHOT.jar app.jar
+EXPOSE 8090
+ENTRYPOINT ["java", "-jar", "app.jar"]

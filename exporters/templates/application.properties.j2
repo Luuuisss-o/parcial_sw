@@ -1,0 +1,20 @@
+spring.datasource.url=jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5434}/{{ db_name }}
+spring.datasource.username={{ db_user }}
+spring.datasource.password={{ db_pass }}
+
+spring.jpa.hibernate.ddl-auto=create
+spring.jpa.show-sql=true
+spring.jpa.properties.hibernate.format_sql=true
+
+# Bolivia: UTC-04:00 fijo, sin horario de verano. Se fuerza tanto en
+# Jackson (serializacion JSON de fechas) como en la conexion JDBC
+# (interpretacion de TIMESTAMPTZ), para que un mismo instante se muestre
+# igual sin importar en que zona horaria corra el servidor/contenedor.
+spring.jackson.time-zone=America/La_Paz
+spring.jpa.properties.hibernate.jdbc.time_zone=America/La_Paz
+
+logging.level.org.hibernate.SQL=DEBUG
+logging.level.org.hibernate.type.descriptor.sql.BasicBinder=TRACE
+logging.level.org.hibernate.tool.hbm2ddl=DEBUG
+
+server.port=8090

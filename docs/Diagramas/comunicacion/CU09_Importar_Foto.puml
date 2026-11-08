@@ -1,0 +1,65 @@
+@startuml CU09_Importar_Foto
+title Communication Diagram — CU-09: Importar Diagrama desde Fotografía
+
+' Objetos
+object ":Usuario" as user
+object ":ImportFromPhotoModal\n(React)" as modal
+object ":vision.js\n(API Client)" as visionApi
+object ":AxiosClient" as axios
+object ":VisionRouter\n(FastAPI)" as router
+object ":Security" as security
+object ":DiagramVision\n(Service)" as visionSvc
+object ":Gemini Vision\n(Google AI)" as gemini
+object ":Frontend\n(Preview Editor)" as preview
+object ":Diagram\n(SQLAlchemy)" as diagramModel
+object ":DiagramToolExecutor\n(ai_tools.py)" as executor
+object ":Clase / Atributo /\nRelacion (ORM)" as orm
+object ":PostgreSQL" as db
+
+' === Paso 1: Detectar (subir foto) ===
+user --> modal : 1: selecciona foto del diagrama\n(JPEG/PNG/WEBP/HEIC, max 10MB)
+modal --> visionApi : 1.1: detectDiagramFromImage(file)
+visionApi --> axios : 1.2: POST /vision/detect\n(multipart: image, timeout: 90s)
+axios --> router : 1.3: HTTP POST
+router --> security : 1.4: get_current_user(token)
+router --> router : 1.5: validate MIME type + size
+router --> visionSvc : 1.6: detect_from_image(content, mime)
+visionSvc --> gemini : 1.7: send image + structured prompt\n"transcribe this UML class diagram"
+gemini --> visionSvc : 1.8: JSON {classes[], relations[], warning?}
+visionSvc --> router : 1.9: VisionDetectResult
+router --> router : 1.10: validate at least 1 class found\n(else HTTP 422)
+router --> axios : 1.11: HTTP 200 VisionDetectResult
+axios --> modal : 1.12: {classes, relations, warning}
+
+' === Paso 2: Revisión humana (NO se aplica nada aún) ===
+modal --> preview : 2: render preview editable\ncon clases y relaciones detectadas
+user --> preview : 2.1: corrige nombres, tipos,\nrelaciones mal leídas
+user --> preview : 2.2: confirma "Importar"
+
+' === Paso 3: Aplicar (crear diagrama real) ===
+preview --> visionApi : 3: applyDetectedDiagram({title, classes, relations})
+visionApi --> axios : 3.1: POST /vision/apply\n{title, classes[], relations[]}
+axios --> router : 3.2: HTTP POST
+router --> security : 3.3: get_current_user(token)
+router --> diagramModel : 3.4: Diagram(title, owner_id=me.id)
+diagramModel --> db : 3.5: INSERT INTO diagram
+db --> diagramModel : 3.6: new diagram
+
+router --> executor : 3.7: DiagramToolExecutor(db, diagram)
+
+' Clases (layout en grilla: x += 16 por cada clase)
+executor --> orm : 3.8: create_class(name, x_grid=0, y_grid=0)
+orm --> db : 3.9: INSERT INTO clase
+executor --> orm : 3.10: add_attribute(class, name, type, required)
+orm --> db : 3.11: INSERT INTO atributo
+' (repite por cada clase y cada atributo)
+
+' Relaciones
+executor --> orm : 3.12: create_relation(from, to, type,\nlabel, multiplicidad)
+orm --> db : 3.13: INSERT INTO relacion
+
+router --> axios : 3.14: HTTP 200 VisionApplySummary\n{diagram_id, classes_created[],\nattributes_created, relations_created,\nwarnings[]}
+axios --> modal : 3.15: summary
+modal --> user : 3.16: redirect to new diagram\n/diagram/{diagram_id}
+
+@enduml

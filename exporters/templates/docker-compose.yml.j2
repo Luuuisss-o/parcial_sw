@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16
+    container_name: {{ artifactId }}-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: {{ db_name }}
+      POSTGRES_USER: {{ db_user }}
+      POSTGRES_PASSWORD: {{ db_pass }}
+      # Bolivia: UTC-04:00 fijo, sin horario de verano. PGTZ controla la
+      # zona horaria de las CONEXIONES nuevas a Postgres (no la del
+      # cluster en si, que Postgres siempre guarda en UTC internamente
+      # para TIMESTAMPTZ -- esto solo afecta como se muestran/interpretan
+      # los valores sin zona explicita).
+      TZ: America/La_Paz
+      PGTZ: America/La_Paz
+    ports:
+      - "5434:5432"
+    volumes:
+      - {{ artifactId }}_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ db_user }} -d {{ db_name }}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: {{ artifactId }}-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      TZ: America/La_Paz
+    ports:
+      - "8090:8090"
+
+volumes:
+  {{ artifactId }}_pgdata:

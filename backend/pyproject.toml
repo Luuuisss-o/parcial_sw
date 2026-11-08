@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+
+[project]
+name = "uml-ai-backend"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "pydantic",
+  "pydantic-settings",
+  "SQLAlchemy>=2",
+  "psycopg2-binary",
+  "alembic",
+  "python-jose[cryptography]",
+  "passlib[bcrypt]",
+  "python-multipart",
+  "pydantic[email]",
+  "google-genai",
+]
+
+[tool.pyright]
+include = ["app"]
+extraPaths = ["."]

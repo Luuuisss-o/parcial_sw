@@ -1,0 +1,65 @@
+@startuml CU07_Gestionar_Relaciones
+title Communication Diagram — CU-07: Gestionar Relaciones entre Clases
+
+' Objetos
+object ":Usuario" as user
+object ":DiagramPage\n(React)" as diagram
+object ":ConnectionLayer\n(SVG)" as connLayer
+object ":RelationInspector\n(React)" as relInspector
+object ":useRelations\n(Hook)" as hook
+object ":relations.js\n(API Client)" as relApi
+object ":AxiosClient" as axios
+object ":RelacionRouter\n(FastAPI)" as router
+object ":Security" as security
+object ":_helpers" as helpers
+object ":Relacion\n(SQLAlchemy)" as model
+object ":PostgreSQL" as db
+object ":realtime_events" as rtEvents
+object ":WSManager" as wsManager
+object ":Otros Clientes" as others
+
+' === Crear relación ===
+user --> diagram : 1: arrastra puerto de clase A\na clase B
+diagram --> hook : 1.1: createRelation({from_class,\nto_class, type, multiplicidad})
+hook --> relApi : 1.2: createRelation(diagramId, params)
+relApi --> axios : 1.3: POST /diagrams/{id}/relations\n{from_class, to_class, type,\nmult_origen_min/max, mult_destino_min/max}
+axios --> router : 1.4: HTTP POST
+router --> security : 1.5: get_current_user(token)
+router --> helpers : 1.6: get_my_diagram(db, me, diagramId)
+router --> router : 1.7: validate origen_id != destino_id
+router --> router : 1.8: parse multiplicidad strings
+router --> model : 1.9: Relacion(diagram_id, origen_id,\ndestino_id, tipo, etiqueta, multiplicidad)
+model --> db : 1.10: INSERT INTO relacion
+db --> model : 1.11: relacion row
+router --> rtEvents : 1.12: notify("relation.created")
+rtEvents --> wsManager : 1.13: broadcast(diagramId, event)
+wsManager --> others : 1.14: WebSocket JSON
+router --> axios : 1.15: HTTP 201 RelacionOut
+axios --> hook : 1.16: response.data
+hook --> connLayer : 1.17: render new SVG connection
+
+' === Editar relación ===
+user --> connLayer : 2: click en línea de relación
+connLayer --> diagram : 2.1: setSelectedRelId(id)
+diagram --> relInspector : 2.2: render RelationInspector
+user --> relInspector : 2.3: modifica tipo/etiqueta/multiplicidad
+relInspector --> hook : 2.4: updateRelation(relId, changes)
+hook --> relApi : 2.5: updateRelation(relId, partial)
+relApi --> axios : 2.6: PATCH /diagrams/relations/{relId}
+axios --> router : 2.7: HTTP PATCH
+router --> model : 2.8: merge changes
+model --> db : 2.9: UPDATE relacion SET ...
+router --> rtEvents : 2.10: notify("relation.updated")
+
+' === Eliminar relación ===
+user --> relInspector : 3: click "Eliminar relación"
+relInspector --> hook : 3.1: deleteRelation(relId)
+hook --> relApi : 3.2: deleteRelation(relId)
+relApi --> axios : 3.3: DELETE /diagrams/relations/{relId}
+axios --> router : 3.4: HTTP DELETE
+router --> model : 3.5: delete(relacion)
+model --> db : 3.6: DELETE FROM relacion
+router --> rtEvents : 3.7: notify("relation.deleted")
+router --> hook : 3.8: HTTP 204
+
+@enduml

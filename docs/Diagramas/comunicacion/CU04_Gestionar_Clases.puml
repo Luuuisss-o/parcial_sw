@@ -1,0 +1,62 @@
+@startuml CU04_Gestionar_Clases
+title Communication Diagram — CU-04: Gestionar Clases del Diagrama
+
+' Objetos
+object ":Usuario" as user
+object ":DiagramPage\n(React)" as diagram
+object ":useClassesAndDetails\n(Hook)" as hook
+object ":classes.js\n(API Client)" as classesApi
+object ":AxiosClient" as axios
+object ":ClassesRouter\n(FastAPI)" as router
+object ":Security\n(get_current_user)" as security
+object ":_helpers\n(get_my_diagram)" as helpers
+object ":Clase\n(SQLAlchemy)" as model
+object ":PostgreSQL" as db
+object ":realtime_events" as rtEvents
+object ":WSManager" as wsManager
+object ":Otros Clientes\n(WebSocket)" as otherClients
+
+' === Crear clase ===
+user --> diagram : 1: click "Nueva Clase"
+diagram --> hook : 1.1: createClass(name, x, y)
+hook --> classesApi : 1.2: createClass(diagramId, {name, x_grid, y_grid})
+classesApi --> axios : 1.3: POST /diagrams/{id}/classes
+axios --> router : 1.4: HTTP POST
+router --> security : 1.5: get_current_user(token)
+router --> helpers : 1.6: get_my_diagram(db, me, diagramId)
+router --> model : 1.7: Clase(nombre, diagram_id, x_grid, y_grid)
+model --> db : 1.8: INSERT INTO clase
+db --> model : 1.9: clase row
+router --> rtEvents : 1.10: notify("class.created", clase)
+rtEvents --> wsManager : 1.11: broadcast(diagramId, event)
+wsManager --> otherClients : 1.12: WebSocket JSON event
+router --> axios : 1.13: HTTP 201 ClaseCompletaOut
+axios --> hook : 1.14: response.data
+hook --> diagram : 1.15: optimistic update + render ClassCard
+
+' === Editar clase (PATCH) ===
+user --> diagram : 2: edita nombre/posición en ClassCard
+diagram --> hook : 2.1: updateClass(classId, changes)
+hook --> classesApi : 2.2: updateClass(classId, partialData)
+classesApi --> axios : 2.3: PATCH /diagrams/classes/{classId}
+axios --> router : 2.4: HTTP PATCH
+router --> model : 2.5: merge changes into Clase
+model --> db : 2.6: UPDATE clase SET ...
+router --> rtEvents : 2.7: notify("class.updated", clase)
+rtEvents --> wsManager : 2.8: broadcast
+wsManager --> otherClients : 2.9: WebSocket event
+
+' === Eliminar clase ===
+user --> diagram : 3: click "Eliminar clase"
+diagram --> hook : 3.1: deleteClass(classId)
+hook --> classesApi : 3.2: deleteClass(classId)
+classesApi --> axios : 3.3: DELETE /diagrams/classes/{classId}
+axios --> router : 3.4: HTTP DELETE
+router --> model : 3.5: delete(clase)
+model --> db : 3.6: DELETE FROM clase WHERE id=?\n(CASCADE: atributos, métodos, relaciones)
+router --> rtEvents : 3.7: notify("class.deleted", classId)
+rtEvents --> wsManager : 3.8: broadcast
+wsManager --> otherClients : 3.9: WebSocket event
+router --> hook : 3.10: HTTP 204
+
+@enduml

@@ -1,0 +1,1424 @@
+{
+  "info": {
+    "name": "UML AI Tool API",
+    "description": "Generado automáticamente desde /openapi.json. Correr primero 'Auth > Sign in' para setear {{access_token}} (ver Tests script de ese request).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "general",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Root",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                ""
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "auth",
+      "item": [
+        {
+          "name": "Sign In",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/sign-in",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "sign-in"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"string\",\n  \"password\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json();",
+                  "if (data.access_token) {",
+                  "    pm.collectionVariables.set('access_token', data.access_token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "diagrams",
+      "item": [
+        {
+          "name": "Create Diagram",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/diagrams",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Diagrams",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams?page=1&limit=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Diagram",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/:diagram_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                ":diagram_id"
+              ],
+              "variable": [
+                {
+                  "key": "diagram_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Diagram",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/:diagram_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                ":diagram_id"
+              ],
+              "variable": [
+                {
+                  "key": "diagram_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Diagram Full",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/:diagram_id/full",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                ":diagram_id",
+                "full"
+              ],
+              "variable": [
+                {
+                  "key": "diagram_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Collaborators",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/:diagram_id/collaborators",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                ":diagram_id",
+                "collaborators"
+              ],
+              "variable": [
+                {
+                  "key": "diagram_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add Collaborator",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/diagrams/:diagram_id/collaborators",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                ":diagram_id",
+                "collaborators"
+              ],
+              "variable": [
+                {
+                  "key": "diagram_id",
+                  "value": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"string\",\n  \"role\": \"EDITOR\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Collaborator",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/:diagram_id/collaborators/:user_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                ":diagram_id",
+                "collaborators",
+                ":user_id"
+              ],
+              "variable": [
+                {
+                  "key": "diagram_id",
+                  "value": ""
+                },
+                {
+                  "key": "user_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "classes",
+      "item": [
+        {
+          "name": "Create Class",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/diagrams/:diagram_id/classes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                ":diagram_id",
+                "classes"
+              ],
+              "variable": [
+                {
+                  "key": "diagram_id",
+                  "value": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"string\",\n  \"x_grid\": 0,\n  \"y_grid\": 0,\n  \"w_grid\": 0,\n  \"h_grid\": 0,\n  \"z_index\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Classes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/:diagram_id/classes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                ":diagram_id",
+                "classes"
+              ],
+              "variable": [
+                {
+                  "key": "diagram_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Class",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/classes/:class_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                "classes",
+                ":class_id"
+              ],
+              "variable": [
+                {
+                  "key": "class_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Class",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/diagrams/classes/:class_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                "classes",
+                ":class_id"
+              ],
+              "variable": [
+                {
+                  "key": "class_id",
+                  "value": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"string\",\n  \"x_grid\": 0,\n  \"y_grid\": 0,\n  \"w_grid\": 0,\n  \"h_grid\": 0,\n  \"z_index\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Class",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/classes/:class_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                "classes",
+                ":class_id"
+              ],
+              "variable": [
+                {
+                  "key": "class_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "attributes",
+      "item": [
+        {
+          "name": "List Attributes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/classes/:class_id/attributes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                "classes",
+                ":class_id",
+                "attributes"
+              ],
+              "variable": [
+                {
+                  "key": "class_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Attribute",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/diagrams/classes/:class_id/attributes",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                "classes",
+                ":class_id",
+                "attributes"
+              ],
+              "variable": [
+                {
+                  "key": "class_id",
+                  "value": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"string\",\n  \"type\": \"string\",\n  \"required\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Attribute",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/diagrams/attributes/:attr_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                "attributes",
+                ":attr_id"
+              ],
+              "variable": [
+                {
+                  "key": "attr_id",
+                  "value": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"string\",\n  \"type\": \"string\",\n  \"required\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Attribute",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/attributes/:attr_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                "attributes",
+                ":attr_id"
+              ],
+              "variable": [
+                {
+                  "key": "attr_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "methods",
+      "item": [
+        {
+          "name": "List Methods",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/classes/:class_id/methods",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                "classes",
+                ":class_id",
+                "methods"
+              ],
+              "variable": [
+                {
+                  "key": "class_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Method",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/diagrams/classes/:class_id/methods",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                "classes",
+                ":class_id",
+                "methods"
+              ],
+              "variable": [
+                {
+                  "key": "class_id",
+                  "value": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"string\",\n  \"return_type\": \"void\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Method",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/diagrams/methods/:method_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                "methods",
+                ":method_id"
+              ],
+              "variable": [
+                {
+                  "key": "method_id",
+                  "value": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"string\",\n  \"return_type\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Method",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/methods/:method_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                "methods",
+                ":method_id"
+              ],
+              "variable": [
+                {
+                  "key": "method_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "relations",
+      "item": [
+        {
+          "name": "Create Relation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/diagrams/:diagram_id/relations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                ":diagram_id",
+                "relations"
+              ],
+              "variable": [
+                {
+                  "key": "diagram_id",
+                  "value": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"from_class\": \"00000000-0000-0000-0000-000000000000\",\n  \"to_class\": \"00000000-0000-0000-0000-000000000000\",\n  \"type\": \"ASSOCIATION\",\n  \"label\": \"string\",\n  \"src_anchor\": \"left\",\n  \"dst_anchor\": \"left\",\n  \"src_offset\": 0,\n  \"dst_offset\": 0,\n  \"src_lane\": 0,\n  \"dst_lane\": 0,\n  \"src_mult_min\": 0,\n  \"src_mult_max\": 0,\n  \"dst_mult_min\": 0,\n  \"dst_mult_max\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Relations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/:diagram_id/relations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                ":diagram_id",
+                "relations"
+              ],
+              "variable": [
+                {
+                  "key": "diagram_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Relation",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/diagrams/relations/:relation_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                "relations",
+                ":relation_id"
+              ],
+              "variable": [
+                {
+                  "key": "relation_id",
+                  "value": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"ASSOCIATION\",\n  \"label\": \"string\",\n  \"src_anchor\": \"left\",\n  \"dst_anchor\": \"left\",\n  \"src_offset\": 0,\n  \"dst_offset\": 0,\n  \"src_lane\": 0,\n  \"dst_lane\": 0,\n  \"src_mult_min\": 0,\n  \"src_mult_max\": 0,\n  \"dst_mult_min\": 0,\n  \"dst_mult_max\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Relation",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/relations/:relation_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                "relations",
+                ":relation_id"
+              ],
+              "variable": [
+                {
+                  "key": "relation_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Relation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/relations/:relation_id",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                "relations",
+                ":relation_id"
+              ],
+              "variable": [
+                {
+                  "key": "relation_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "export",
+      "item": [
+        {
+          "name": "Export And Download",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/:diagram_id/export-download",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                ":diagram_id",
+                "export-download"
+              ],
+              "variable": [
+                {
+                  "key": "diagram_id",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "ai",
+      "item": [
+        {
+          "name": "Ai Command",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/diagrams/:diagram_id/ai/command",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                ":diagram_id",
+                "ai",
+                "command"
+              ],
+              "variable": [
+                {
+                  "key": "diagram_id",
+                  "value": ""
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "xmi",
+      "item": [
+        {
+          "name": "Export Xmi",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/:diagram_id/export-xmi",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                ":diagram_id",
+                "export-xmi"
+              ],
+              "variable": [
+                {
+                  "key": "diagram_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Import Xmi",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/diagrams/:diagram_id/import-xmi",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "diagrams",
+                ":diagram_id",
+                "import-xmi"
+              ],
+              "variable": [
+                {
+                  "key": "diagram_id",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "vision",
+      "item": [
+        {
+          "name": "Detect",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/vision/detect",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "vision",
+                "detect"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Apply",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/vision/apply",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "vision",
+                "apply"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Diagrama importado\",\n  \"classes\": [\n    {\n      \"name\": \"string\",\n      \"attributes\": [\n        null\n      ]\n    }\n  ],\n  \"relations\": [\n    {\n      \"from_class\": \"string\",\n      \"to_class\": \"string\",\n      \"type\": \"ASSOCIATION\",\n      \"label\": \"string\",\n      \"src_multiplicity\": \"string\",\n      \"dst_multiplicity\": \"string\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+@startuml CU03_Gestionar_Colaboradores
+title Communication Diagram — CU-03: Gestionar Colaboradores del Diagrama
+
+' Objetos
+object ":Usuario\n(Dueño)" as owner
+object ":DiagramPage\n(React)" as diagramPage
+object ":CollaboratorsModal\n(React)" as modal
+object ":API Client" as api
+object ":AxiosClient" as axios
+object ":DiagramasRouter\n(FastAPI)" as router
+object ":Security\n(get_current_user)" as security
+object ":User\n(SQLAlchemy)" as userModel
+object ":DiagramCollaborator\n(SQLAlchemy)" as collabModel
+object ":PostgreSQL" as db
+
+' === Agregar colaborador ===
+owner --> diagramPage : 1: abre modal de colaboradores
+diagramPage --> modal : 1.1: render CollaboratorsModal
+owner --> modal : 2: ingresa email y rol (EDITOR/VIEWER)
+modal --> api : 2.1: addCollaborator(diagramId, email, role)
+api --> axios : 2.2: POST /diagrams/{id}/collaborators\n{email, role}
+axios --> router : 2.3: HTTP POST
+router --> security : 2.4: get_current_user(token)
+router --> router : 2.5: verify owner_id == me.id
+router --> userModel : 2.6: query(User).filter(email)
+userModel --> db : 2.7: SELECT * FROM "user" WHERE email=?
+db --> userModel : 2.8: User target
+router --> router : 2.9: validate target != owner
+router --> collabModel : 2.10: DiagramCollaborator(diagram_id, user_id, role)
+collabModel --> db : 2.11: INSERT INTO diagram_collaborator
+db --> router : 2.12: CollaboratorOut
+router --> modal : 2.13: HTTP 201 JSON
+
+' === Listar colaboradores ===
+modal --> api : 3: listCollaborators(diagramId)
+api --> axios : 3.1: GET /diagrams/{id}/collaborators
+axios --> router : 3.2: HTTP GET
+router --> collabModel : 3.3: query(DiagramCollaborator)\n.filter(diagram_id)
+collabModel --> db : 3.4: SELECT con JOIN user
+db --> modal : 3.5: CollaboratorOut[]
+
+' === Eliminar colaborador ===
+owner --> modal : 4: click "Quitar" en colaborador
+modal --> api : 4.1: removeCollaborator(diagramId, userId)
+api --> axios : 4.2: DELETE /diagrams/{id}/collaborators/{userId}
+axios --> router : 4.3: HTTP DELETE
+router --> security : 4.4: verify owner_id == me.id
+router --> collabModel : 4.5: delete(collaborator)
+collabModel --> db : 4.6: DELETE FROM diagram_collaborator
+router --> modal : 4.7: HTTP 204
+
+@enduml

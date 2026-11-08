@@ -1,0 +1,29 @@
+/* =========================================================================
+   Tokens del lienzo + alias de compatibilidad.
+   El sistema de diseño (design-system.css) es la fuente de verdad del color;
+   acá solo viven los tokens propios del canvas y los alias que todavía usan
+   algunos componentes heredados (--surface, --ok, --panel-bg).
+   ========================================================================= */
+
+:root {
+  /* Lienzo (tema oscuro por defecto) */
+  --canvas-bg: #0d1117;
+  --canvas-grid: #1e2636;
+
+  /* Alias heredados */
+  --surface: var(--surface-1);
+  --panel-bg: var(--surface-1);
+  --ok: var(--success);
+}
+
+[data-theme="light"] {
+  --canvas-bg: #ffffff;
+  --canvas-grid: #e4e7ec;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}

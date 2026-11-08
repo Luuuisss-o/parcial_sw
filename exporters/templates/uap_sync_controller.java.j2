@@ -1,0 +1,129 @@
+package com.test.uap;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * GET /uap/v1/sync/state, GET /uap/v1/sync/changes, POST /uap/v1/sync/push.
+ *
+ * Sincronizacion minima viable: el "cursor" es el seq autoincremental de
+ * UapChangeLog (ver esa clase), y la "generation" es el UUID estable de
+ * UapGeneration. Si el cliente manda una generation que no coincide con la
+ * actual, se responde 409 con reset=true -- eso le dice al cliente "tu
+ * cache local ya no corresponde a esta base de datos, descartala" en vez
+ * de dejar que siga mezclando datos de dos generaciones distintas.
+ */
+@RestController
+@RequestMapping("/uap/v1/sync")
+public class UapSyncController {
+
+    private final UapGeneration.Initializer generationProvider;
+    private final UapToolDispatcher dispatcher;
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public UapSyncController(UapGeneration.Initializer generationProvider, UapToolDispatcher dispatcher) {
+        this.generationProvider = generationProvider;
+        this.dispatcher = dispatcher;
+    }
+
+    @GetMapping("/state")
+    public Map<String, Object> state() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("generation", generationProvider.currentGeneration());
+        body.put("cursor", currentCursor());
+        body.put("serverTime", OffsetDateTime.now().toString());
+        return body;
+    }
+
+    @GetMapping("/changes")
+    public ResponseEntity<Object> changes(
+            @RequestParam(defaultValue = "0") long since,
+            @RequestParam(required = false) String generation) {
+        if (generation != null && !generation.equals(generationProvider.currentGeneration())) {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("reset", true);
+            body.put("generation", generationProvider.currentGeneration());
+            return ResponseEntity.status(409).body(body);
+        }
+
+        List<UapChangeLog> rows = entityManager
+                .createQuery("select c from UapChangeLog c where c.seq > :since order by c.seq asc", UapChangeLog.class)
+                .setParameter("since", since)
+                .setMaxResults(500)
+                .getResultList();
+
+        List<Map<String, Object>> changesOut = new java.util.ArrayList<>();
+        for (UapChangeLog row : rows) {
+            Map<String, Object> c = new LinkedHashMap<>();
+            c.put("entity", row.getEntityKey());
+            c.put("id", row.getServerId());
+            c.put("op", row.getOp());
+            c.put("changedAt", row.getChangedAt().toString());
+            changesOut.add(c);
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("generation", generationProvider.currentGeneration());
+        body.put("cursor", currentCursor());
+        body.put("changes", changesOut);
+        return ResponseEntity.ok(body);
+    }
+
+    @PostMapping("/push")
+    @Transactional
+    public Map<String, Object> push(@RequestBody Map<String, Object> body) {
+        Object rawOps = body.get("ops");
+        List<Map<String, Object>> ops = (rawOps instanceof List) ? (List<Map<String, Object>>) rawOps : List.of();
+
+        List<Map<String, Object>> results = new java.util.ArrayList<>();
+        for (Map<String, Object> op : ops) {
+            String clientRecordId = String.valueOf(op.get("clientRecordId"));
+            String toolId = String.valueOf(op.get("toolId"));
+            Object input = op.get("input");
+
+            Map<String, Object> invokeBody = new LinkedHashMap<>();
+            invokeBody.put("clientRecordId", clientRecordId);
+            invokeBody.put("input", input);
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("clientRecordId", clientRecordId);
+            try {
+                ResponseEntity<Object> response = dispatcher.invoke(toolId, invokeBody);
+                if (response.getStatusCode().is2xxSuccessful()) {
+                    result.put("status", "ok");
+                    result.put("result", response.getBody());
+                } else {
+                    result.put("status", "error");
+                    result.put("result", response.getBody());
+                }
+            } catch (Exception e) {
+                result.put("status", "error");
+                result.put("result", Map.of("error", e.getMessage()));
+            }
+            results.add(result);
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("generation", generationProvider.currentGeneration());
+        out.put("cursor", currentCursor());
+        out.put("results", results);
+        return out;
+    }
+
+    private long currentCursor() {
+        Long max = entityManager
+                .createQuery("select max(c.seq) from UapChangeLog c", Long.class)
+                .getSingleResult();
+        return max == null ? 0L : max;
+    }
+}

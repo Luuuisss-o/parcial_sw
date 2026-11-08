@@ -1,0 +1,128 @@
+# app/routers/vision.py
+"""
+Importar un diagrama de clases dibujado a mano a partir de una foto.
+
+Flujo en dos pasos, no uno: el usuario sube la foto, Gemini transcribe lo
+que ve y el resultado se le devuelve SIN aplicar a ningun diagrama todavia
+(POST /vision/detect). El frontend muestra esa lectura como una vista
+previa editable; recien cuando el usuario confirma se crea el diagrama y se
+aplican los cambios (POST /vision/apply), reusando DiagramToolExecutor -- el
+mismo motor que ya usan el asistente de IA y el import de XMI.
+"""
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from sqlalchemy.orm import Session
+
+from app.db import get_db
+from app.core.security import get_current_user
+from app.models.uml import Diagram
+from app.models.user import User
+from app.schemas.vision import VisionApplyIn, VisionApplySummary, VisionDetectResult
+from app.services.ai_assistant import describe_error
+from app.services.ai_tools import DiagramToolExecutor, ToolError
+from app.services.diagram_vision import detect_from_image
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/vision", tags=["vision"])
+
+_ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
+_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+@router.post("/detect", response_model=VisionDetectResult)
+async def detect(
+    file: UploadFile,
+    me: User = Depends(get_current_user),
+):
+    content_type = (file.content_type or "").lower()
+    if content_type not in _ALLOWED_MIME:
+        raise HTTPException(400, "La imagen tiene que ser JPEG, PNG, WEBP o HEIC.")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(400, "El archivo esta vacio")
+    if len(content) > _MAX_BYTES:
+        raise HTTPException(400, "La imagen es demasiado pesada (máximo 10 MB).")
+
+    try:
+        result = detect_from_image(content, content_type)
+    except RuntimeError as e:
+        status = 503 if "mucha demanda" in str(e) else 400
+        raise HTTPException(status, str(e))
+    except Exception as e:
+        logger.error(f"[vision] fallo detectando diagrama: {type(e).__name__}: {e}")
+        raise HTTPException(502, describe_error(e))
+
+    if not result.classes:
+        raise HTTPException(
+            422,
+            result.warning or "No se reconoció ninguna clase en la imagen. Probá con una foto más nítida y de frente.",
+        )
+
+    return result
+
+
+@router.post("/apply", response_model=VisionApplySummary)
+def apply(
+    body: VisionApplyIn,
+    db: Session = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
+    if not body.classes:
+        raise HTTPException(400, "No hay ninguna clase para crear.")
+
+    diagram = Diagram(title=body.title.strip() or "Diagrama importado", owner_id=me.id)
+    db.add(diagram)
+    db.commit()
+    db.refresh(diagram)
+
+    executor = DiagramToolExecutor(db, diagram)
+    summary = VisionApplySummary(diagram_id=str(diagram.id))
+
+    # Posiciones en grilla: una fila de clases espaciadas, simple y
+    # predecible -- el usuario las reacomoda a gusto una vez importadas.
+    x, y = 0, 0
+    for c in body.classes:
+        try:
+            executor.create_class(name=c.name, x_grid=x, y_grid=y)
+            summary.classes_created.append(c.name)
+        except ToolError as e:
+            summary.warnings.append(str(e))
+            continue
+        finally:
+            x += 16
+
+        for attr in c.attributes:
+            try:
+                executor.add_attribute(class_name=c.name, name=attr.name, type=attr.type, required=attr.required)
+                summary.attributes_created += 1
+            except ToolError as e:
+                summary.warnings.append(str(e))
+
+    for r in body.relations:
+        try:
+            executor.create_relation(
+                from_class=r.from_class,
+                to_class=r.to_class,
+                type=r.type,
+                label=r.label,
+                src_multiplicity=r.src_multiplicity,
+                dst_multiplicity=r.dst_multiplicity,
+            )
+            summary.relations_created += 1
+        except ToolError as e:
+            summary.warnings.append(str(e))
+        except ValueError as e:
+            # Multiplicidad u otro dato con un formato que el parser no
+            # entiende: no debe tirar abajo la creacion de todo el
+            # diagrama por una sola relacion con lectura rara de la foto.
+            summary.warnings.append(f"No se pudo crear la relación {r.from_class} → {r.to_class}: {e}")
+
+    logger.info(
+        f"[vision apply] diagram_id={diagram.id} user={me.id} "
+        f"clases={len(summary.classes_created)} atributos={summary.attributes_created} "
+        f"relaciones={summary.relations_created}"
+    )
+    return summary

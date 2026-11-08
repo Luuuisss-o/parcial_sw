@@ -1,0 +1,60 @@
+@startuml CU06_Gestionar_Metodos
+title Communication Diagram — CU-06: Gestionar Métodos de una Clase
+
+' Objetos
+object ":Usuario" as user
+object ":Inspector\n(React)" as inspector
+object ":useClassesAndDetails\n(Hook)" as hook
+object ":API Client\n(methods)" as methodApi
+object ":AxiosClient" as axios
+object ":MetodoRouter\n(FastAPI)" as router
+object ":Security" as security
+object ":Metodo\n(SQLAlchemy)" as model
+object ":PostgreSQL" as db
+object ":realtime_events" as rtEvents
+object ":WSManager" as wsManager
+object ":Otros Clientes" as others
+
+' === Crear método ===
+user --> inspector : 1: click "Agregar método"
+inspector --> hook : 1.1: addMethod(classId, name, returnType)
+hook --> methodApi : 1.2: createMethod(classId, {name, return_type})
+methodApi --> axios : 1.3: POST /diagrams/classes/{classId}/methods
+axios --> router : 1.4: HTTP POST
+router --> security : 1.5: get_current_user(token)
+router --> router : 1.6: verify class belongs to\naccessible diagram
+router --> model : 1.7: Metodo(nombre, tipo_retorno, clase_id)
+model --> db : 1.8: INSERT INTO metodo\n(UNIQUE: clase_id + nombre)
+db --> model : 1.9: metodo row
+router --> rtEvents : 1.10: notify("method.created")
+rtEvents --> wsManager : 1.11: broadcast(diagramId, event)
+wsManager --> others : 1.12: WebSocket JSON
+router --> axios : 1.13: HTTP 201 MetodoOut
+axios --> hook : 1.14: response.data
+hook --> inspector : 1.15: update class details
+
+' === Editar método ===
+user --> inspector : 2: modifica nombre/tipo_retorno
+inspector --> hook : 2.1: updateMethod(methodId, changes)
+hook --> methodApi : 2.2: updateMethod(methodId, partial)
+methodApi --> axios : 2.3: PATCH /diagrams/methods/{methodId}
+axios --> router : 2.4: HTTP PATCH
+router --> model : 2.5: merge changes
+model --> db : 2.6: UPDATE metodo SET ...
+router --> rtEvents : 2.7: notify("method.updated")
+rtEvents --> wsManager : 2.8: broadcast
+wsManager --> others : 2.9: WebSocket event
+
+' === Eliminar método ===
+user --> inspector : 3: click "Eliminar" en método
+inspector --> hook : 3.1: deleteMethod(methodId)
+hook --> methodApi : 3.2: deleteMethod(methodId)
+methodApi --> axios : 3.3: DELETE /diagrams/methods/{methodId}
+axios --> router : 3.4: HTTP DELETE
+router --> model : 3.5: delete(metodo)
+model --> db : 3.6: DELETE FROM metodo
+router --> rtEvents : 3.7: notify("method.deleted")
+rtEvents --> wsManager : 3.8: broadcast
+router --> hook : 3.9: HTTP 200 {id, class_id}
+
+@enduml

@@ -1,0 +1,82 @@
+@startuml CU13_Convertir_Clase_Asociacion
+title Communication Diagram — CU-13: Convertir Relación en Clase de Asociación
+
+' Objetos
+object ":Usuario" as user
+object ":DiagramPage\n(React)" as diagram
+object ":RelationInspector\n(React)" as relInspector
+object ":AssociationClassModal\n(React)" as modal
+object ":useClassesAndDetails\n(Hook)" as classHook
+object ":useRelations\n(Hook)" as relHook
+object ":classes.js\n(API Client)" as classesApi
+object ":relations.js\n(API Client)" as relApi
+object ":AxiosClient" as axios
+object ":ClassesRouter\n(FastAPI)" as classRouter
+object ":RelacionRouter\n(FastAPI)" as relRouter
+object ":Clase\n(SQLAlchemy)" as claseModel
+object ":Relacion\n(SQLAlchemy)" as relModel
+object ":PostgreSQL" as db
+object ":realtime_events" as rtEvents
+object ":WSManager" as wsManager
+object ":Otros Clientes" as others
+
+' === Precondición: existe relación M:N entre A y B ===
+
+' === Paso 1: Seleccionar relación candidata ===
+user --> diagram : 1: click en relación M:N\nentre ClaseA y ClaseB
+diagram --> relInspector : 1.1: render RelationInspector\ncon botón "Convertir a\nClase de Asociación"
+user --> relInspector : 1.2: click "Convertir a\nClase de Asociación"
+relInspector --> modal : 1.3: render AssociationClassModal\ncon preview de la conversión
+
+' === Paso 2: Confirmar conversión ===
+user --> modal : 2: confirma conversión
+
+' === Paso 3: Crear clase intermedia ===
+modal --> classHook : 3: createAssociationClass(\n{nameA, nameB, xGrid, yGrid})
+classHook --> classesApi : 3.1: createClass(diagramId,\n{name: "ClaseA_ClaseB",\nx_grid: avg(A.x, B.x),\ny_grid: avg(A.y, B.y) + 4})
+classesApi --> axios : 3.2: POST /diagrams/{id}/classes
+axios --> classRouter : 3.3: HTTP POST
+classRouter --> claseModel : 3.4: Clase(nombre, diagram_id, x, y)
+claseModel --> db : 3.5: INSERT INTO clase
+classRouter --> rtEvents : 3.6: notify("class.created")
+rtEvents --> wsManager : 3.7: broadcast
+wsManager --> others : 3.8: WebSocket event
+classRouter --> axios : 3.9: HTTP 201 ClaseCompletaOut\n(intermedia)
+axios --> modal : 3.10: intermedia {id, name, ...}
+
+' === Paso 4: Crear relación A → Intermedia (1:N) ===
+modal --> relHook : 4: createRelation({from: A.id,\nto: intermedia.id,\ntype: "ASSOCIATION",\nsrc: 1..1, dst: 0..*,\nes_clase_asociacion: true})
+relHook --> relApi : 4.1: createRelation(diagramId, params)
+relApi --> axios : 4.2: POST /diagrams/{id}/relations
+axios --> relRouter : 4.3: HTTP POST
+relRouter --> relModel : 4.4: Relacion(origen=A,\ndestino=intermedia,\ntipo=ASSOCIATION,\nes_clase_asociacion=true)
+relModel --> db : 4.5: INSERT INTO relacion
+relRouter --> rtEvents : 4.6: notify("relation.created")
+rtEvents --> wsManager : 4.7: broadcast
+relRouter --> axios : 4.8: HTTP 201 RelacionOut
+
+' === Paso 5: Crear relación Intermedia → B (N:1) ===
+modal --> relHook : 5: createRelation({from: intermedia.id,\nto: B.id,\ntype: "ASSOCIATION",\nsrc: 0..*, dst: 1..1,\nes_clase_asociacion: true})
+relHook --> relApi : 5.1: createRelation(diagramId, params)
+relApi --> axios : 5.2: POST /diagrams/{id}/relations
+axios --> relRouter : 5.3: HTTP POST
+relRouter --> relModel : 5.4: Relacion(origen=intermedia,\ndestino=B,\ntipo=ASSOCIATION,\nes_clase_asociacion=true)
+relModel --> db : 5.5: INSERT INTO relacion
+relRouter --> rtEvents : 5.6: notify("relation.created")
+rtEvents --> wsManager : 5.7: broadcast
+
+' === Paso 6: Eliminar relación M:N original ===
+modal --> relApi : 6: deleteRelation(originalRelId)
+relApi --> axios : 6.1: DELETE /diagrams/relations/{relId}
+axios --> relRouter : 6.2: HTTP DELETE
+relRouter --> relModel : 6.3: delete(relacion original)
+relModel --> db : 6.4: DELETE FROM relacion
+relRouter --> rtEvents : 6.5: notify("relation.deleted")
+rtEvents --> wsManager : 6.6: broadcast
+wsManager --> others : 6.7: WebSocket event
+
+' === Resultado final ===
+modal --> diagram : 7: refresh diagram view
+diagram --> diagram : 7.1: render: ClaseA ---- Intermedia ---- ClaseB\n(líneas punteadas, UML 2.5\nassociation class notation)
+
+@enduml

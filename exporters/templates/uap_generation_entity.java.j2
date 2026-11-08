@@ -1,0 +1,85 @@
+package com.test.uap;
+
+import jakarta.persistence.*;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.UUID;
+
+/**
+ * Identifica la "generacion" actual del dataset: un UUID que se crea una
+ * sola vez, la primera vez que arranca el backend contra una base vacia, y
+ * se mantiene estable mientras exista esa base/volumen de Postgres. Si se
+ * destruye el volumen y se levanta de cero, Hibernate recrea la tabla
+ * vacia y esta clase genera un UUID nuevo al arrancar -- asi un cliente
+ * offline (el movil) puede detectar "esta ya no es la misma base de datos
+ * que yo tenia cacheada" comparando el valor de /uap/v1/manifest contra el
+ * ultimo que vio, en vez de asumir que los datos viejos siguen siendo
+ * validos.
+ *
+ * Nota: con spring.jpa.hibernate.ddl-auto=create (ver application.properties),
+ * el schema se recrea en CADA arranque del contenedor, no solo la primera
+ * vez -- la generation entonces cambia en cada `docker compose up --build`.
+ * Es el comportamiento correcto para este propósito: cada arranque desde
+ * cero es, para el cliente, una base de datos distinta.
+ */
+@Entity
+@Table(name = "uap_generation")
+public class UapGeneration {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "generation_uuid", nullable = false, unique = true)
+    private String generationUuid;
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getGenerationUuid() { return generationUuid; }
+    public void setGenerationUuid(String generationUuid) { this.generationUuid = generationUuid; }
+
+    /**
+     * Resuelve/crea la fila de generacion y expone el UUID en memoria.
+     * Separado de la entidad JPA a proposito: si esta logica corriera en
+     * un @PostConstruct de la propia @Entity (como estaba antes), Spring
+     * instancia ese bean durante el arranque del contexto, un momento en
+     * el que el EntityManagerFactory puede no haber terminado de escanear
+     * el metamodelo de Hibernate todavia -- la consulta JPQL fallaba con
+     * "Could not resolve root entity 'UapGeneration'" de forma
+     * intermitente. Con ApplicationReadyEvent, el contexto (y JPA) ya
+     * estan completamente inicializados antes de que esto corra.
+     */
+    @Component
+    public static class Initializer {
+        private final EntityManager entityManager;
+        private static volatile String cached;
+
+        public Initializer(EntityManager entityManager) {
+            this.entityManager = entityManager;
+        }
+
+        @EventListener(ApplicationReadyEvent.class)
+        @Transactional
+        public void ensureGenerationExists() {
+            UapGeneration existing = entityManager
+                    .createQuery("select g from UapGeneration g", UapGeneration.class)
+                    .setMaxResults(1)
+                    .getResultStream()
+                    .findFirst()
+                    .orElse(null);
+            if (existing == null) {
+                existing = new UapGeneration();
+                existing.setGenerationUuid(UUID.randomUUID().toString());
+                entityManager.persist(existing);
+            }
+            cached = existing.getGenerationUuid();
+        }
+
+        public String currentGeneration() {
+            return cached;
+        }
+    }
+}

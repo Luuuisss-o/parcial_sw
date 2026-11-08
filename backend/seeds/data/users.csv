@@ -1,0 +1,4 @@
+email,name,password,role,active
+ad1@example.com,Admin,admin123,admin,true
+ed2@example.com,Ana Editor,admin123,editor,true
+ed3@example.com,Ana Editor,admin123,editor,true

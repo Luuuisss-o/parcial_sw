@@ -1,0 +1,8 @@
+// Template: repository.java.j2
+package com.test.repositories;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import com.test.models.{{ class_name }};
+
+public interface {{ class_name }}Repository extends JpaRepository<{{ class_name }}, Long> {
+}

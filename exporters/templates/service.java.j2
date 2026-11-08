@@ -1,0 +1,35 @@
+// Template: service.java.j2
+package com.test.services;
+
+import org.springframework.stereotype.Service;
+import java.util.List;
+import java.util.Optional;
+
+import com.test.models.{{ class_name }};
+import com.test.repositories.{{ class_name }}Repository;
+
+@Service
+public class {{ class_name }}Service {
+
+    private final {{ class_name }}Repository repository;
+
+    public {{ class_name }}Service({{ class_name }}Repository repository) {
+        this.repository = repository;
+    }
+
+    public List<{{ class_name }}> findAll() {
+        return repository.findAll();
+    }
+
+    public Optional<{{ class_name }}> findById(Long id) {
+        return repository.findById(id);
+    }
+
+    public {{ class_name }} save({{ class_name }} entity) {
+        return repository.save(entity);
+    }
+
+    public void delete(Long id) {
+        repository.deleteById(id);
+    }
+}

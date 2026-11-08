@@ -1,0 +1,110 @@
+package com.test.uap;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * GET /uap/v1/tools, GET /uap/v1/permissions, GET /uap/v1/business-rules,
+ * POST /uap/v1/tools/{toolId}/invoke.
+ *
+ * "tools" es la autoridad sobre que operaciones existen: un cliente nunca
+ * debe inventar un toolId que no aparezca aca. Cada tool trae su
+ * inputSchema (formato JSON-Schema, mismo estilo que ya usa el asistente
+ * de IA del diagramador -- ver backend/app/services/ai_assistant.py) para
+ * que el LLM/parser del cliente sepa exactamente que campos puede mandar y
+ * cuales son obligatorios, sin adivinar.
+ */
+@RestController
+@RequestMapping("/uap/v1")
+public class UapToolsController {
+
+    private final UapToolDispatcher dispatcher;
+
+    public UapToolsController(UapToolDispatcher dispatcher) {
+        this.dispatcher = dispatcher;
+    }
+
+    @GetMapping("/tools")
+    public List<Map<String, Object>> tools() {
+        List<Map<String, Object>> list = new java.util.ArrayList<>();
+{% for t in tools %}
+        list.add(tool_{{ t.tool_id }}());
+{% endfor %}
+        return list;
+    }
+
+    // Backend generado por el diagramador: sin autenticacion propia. Se
+    // publica esto explicitamente en vez de omitir el endpoint, para que
+    // el cliente sepa que no hay restricciones reales (mode "open") en vez
+    // de asumirlo o tener que adivinarlo.
+    @GetMapping("/permissions")
+    public Map<String, Object> permissions() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("mode", "open");
+        body.put("allowedTools", List.of(
+{% for t in tools %}
+            "{{ t.tool_id }}"{{ "," if not loop.last }}
+{% endfor %}
+        ));
+        return body;
+    }
+
+    @GetMapping("/business-rules")
+    public List<String> businessRules() {
+        List<String> rules = new java.util.ArrayList<>();
+{% for e in entities %}
+{% for f in e.writable_fields %}
+{% if f.required %}
+        rules.add("{{ e.class_name }}: el campo '{{ f.name }}' es obligatorio.");
+{% endif %}
+{% if f.json_schema.type == "number" %}
+        rules.add("{{ e.class_name }}: el campo '{{ f.name }}' debe ser un numero.");
+{% endif %}
+{% if f.json_schema.type == "integer" %}
+        rules.add("{{ e.class_name }}: el campo '{{ f.name }}' debe ser un numero entero.");
+{% endif %}
+{% if f.json_schema.type == "boolean" %}
+        rules.add("{{ e.class_name }}: el campo '{{ f.name }}' debe ser verdadero o falso.");
+{% endif %}
+{% endfor %}
+{% endfor %}
+        return rules;
+    }
+
+    @PostMapping("/tools/{toolId}/invoke")
+    public ResponseEntity<Object> invoke(@PathVariable String toolId, @RequestBody Map<String, Object> body) {
+        return dispatcher.invoke(toolId, body);
+    }
+
+{% for t in tools %}
+    private Map<String, Object> tool_{{ t.tool_id }}() {
+        Map<String, Object> properties = new LinkedHashMap<>();
+{% for name, schema in t.input_schema.properties.items() %}
+        {
+            Map<String, Object> field = new LinkedHashMap<>();
+            field.put("type", "{{ schema.type }}");
+{% if schema.format %}
+            field.put("format", "{{ schema.format }}");
+{% endif %}
+            properties.put("{{ name }}", field);
+        }
+{% endfor %}
+        Map<String, Object> inputSchema = new LinkedHashMap<>();
+        inputSchema.put("type", "object");
+        inputSchema.put("properties", properties);
+        inputSchema.put("required", List.of({{ t.input_schema.required | map('tojson') | join(', ') }}));
+
+        Map<String, Object> tool = new LinkedHashMap<>();
+        tool.put("toolId", "{{ t.tool_id }}");
+        tool.put("entity", "{{ t.entity_key }}");
+        tool.put("description", "{{ t.description }}");
+        tool.put("inputSchema", inputSchema);
+        return tool;
+    }
+
+{% endfor %}
+}

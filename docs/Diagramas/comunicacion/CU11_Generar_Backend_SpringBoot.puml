@@ -1,0 +1,75 @@
+@startuml CU11_Generar_Backend_SpringBoot
+title Communication Diagram — CU-11: Exportar Diagrama como Backend Spring Boot
+
+' Objetos
+object ":Usuario" as user
+object ":DiagramPage\n(React)" as diagram
+object ":export.js\n(API Client)" as exportApi
+object ":AxiosClient" as axios
+object ":ExportRouter\n(FastAPI)" as router
+object ":Diagram\n(SQLAlchemy)" as diagramModel
+object ":Clase / Atributo /\nMetodo / Relacion\n(ORM)" as orm
+object ":PostgreSQL" as db
+object ":uml_to_json\n(exporters)" as umlToJson
+object ":validator\n(exporters)" as validator
+object ":project_builder\n(exporters)" as builder
+object ":json_to_full_orm" as genModels
+object ":model_to_repository" as genRepos
+object ":repository_to_service" as genServices
+object ":service_to_controller" as genControllers
+object ":model_to_dto" as genDtos
+object ":postman_generator" as genPostman
+object ":Jinja2\nTemplates" as templates
+object ":FileSystem\n(output dir)" as fs
+
+' === Flujo principal ===
+user --> diagram : 1: click "Generar Backend"
+diagram --> exportApi : 1.1: exportDownload(diagramId)
+exportApi --> axios : 1.2: POST /diagrams/{id}/export-download
+axios --> router : 1.3: HTTP POST
+router --> diagramModel : 1.4: query(Diagram).filter(id)
+diagramModel --> db : 1.5: SELECT diagram + JOIN\nclases, atributos, metodos, relaciones
+db --> diagramModel : 1.6: full diagram data
+router --> router : 1.7: build_diagram_dict(diagram)\n→ JSON normalizado
+
+' === Pipeline de exportación ===
+router --> umlToJson : 2: export_diagram_to_json(dict, path)
+umlToJson --> umlToJson : 2.1: _normalize_diagram()\n→ PascalCase clases,\ncamelCase atributos,\nidentificadores Java válidos
+umlToJson --> validator : 2.2: validate(diagram)\n→ check classes exist,\nrelations reference valid classes
+validator --> umlToJson : 2.3: OK (or raise UMLValidationError)
+umlToJson --> fs : 2.4: write diagram.json
+
+router --> builder : 3: build_project(json_path, output_dir)
+
+builder --> genModels : 3.1: generate_from_json()\n→ @Entity classes, @Id,\n@ManyToOne/@OneToMany/@ManyToMany,\n@JoinTable, cascades
+genModels --> fs : 3.2: write Model.java files
+
+builder --> genRepos : 3.3: generate_repositories()\n→ JpaRepository<Entity, UUID>\ninterfaces
+genRepos --> fs : 3.4: write Repository.java files
+
+builder --> genServices : 3.5: generate_services()\n→ @Service classes with\nCRUD methods
+genServices --> fs : 3.6: write Service.java files
+
+builder --> genControllers : 3.7: generate_controllers()\n→ @RestController with\n@GetMapping/@PostMapping etc.
+genControllers --> fs : 3.8: write Controller.java files
+
+builder --> genDtos : 3.9: generate_dtos()\n→ DTO classes
+genDtos --> fs : 3.10: write Dto.java files
+
+builder --> genPostman : 3.11: generate_postman()\n→ collection with folders\nper class + Health check
+genPostman --> fs : 3.12: write postman_collection.json
+
+builder --> templates : 3.13: render Jinja2 templates\n(pom.xml, application.properties,\nDemoApplication.java,\nHealthController.java,\nDockerfile, docker-compose.yml,\nREADME.md)
+templates --> fs : 3.14: write template files
+
+' === ZIP y descarga ===
+router --> fs : 4: zip_generated_project(output_dir)
+fs --> router : 4.1: zip_path
+router --> axios : 4.2: FileResponse(zip_path)\nmedia_type="application/zip"
+axios --> exportApi : 4.3: binary ZIP download
+exportApi --> diagram : 4.4: trigger browser download\n"generated_project_{id}.zip"
+
+' === Uso posterior (fuera del sistema) ===
+user --> user : 5: unzip → cd project →\ndocker compose up -d --build\n(Spring Boot 8090 + Postgres 5434)
+
+@enduml

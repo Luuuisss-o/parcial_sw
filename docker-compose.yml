@@ -1,0 +1,64 @@
+services:
+  db:
+    image: postgres:16
+    container_name: uml-diagramador-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-parcial_sw}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-parcial_sw}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: uml-diagramador-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_URL: postgresql+psycopg2://${DB_USER:-postgres}:${DB_PASSWORD:-devpassword}@db:5432/${DB_NAME:-parcial_sw}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      SEED_DEMO: ${SEED_DEMO:-false}
+      # El frontend llega al backend a traves del proxy /api/ de nginx
+      # (mismo origen http://localhost:5173 desde el navegador), pero el
+      # backend igual valida el header Origin en cada preflight CORS.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api
+    container_name: uml-diagramador-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  # Volumen EXISTENTE creado antes, fuera de este compose: se reusa tal cual
+  # para no perder los datos ya cargados. El nombre real del volumen externo
+  # varia por entorno (en local es un hash autogenerado, en el EC2 de
+  # produccion es "parcial_sw_pgdata"), asi que la clave logica "pgdata" de
+  # arriba se mapea al nombre real via PG_VOLUME_NAME (cada entorno lo
+  # define en su propio .env) -- Compose no permite interpolar variables en
+  # el nombre de la clave del volumen, pero si en la propiedad "name".
+  pgdata:
+    external: true
+    name: ${PG_VOLUME_NAME:-de3f357261e2cb595086c1cf779679390045f2758cce495d781ab2200cc80a30}

@@ -1,0 +1,52 @@
+@startuml CU02_Gestionar_Diagramas
+title Communication Diagram — CU-02: Gestionar Diagramas (CRUD)
+
+' Objetos
+object ":Usuario" as user
+object ":HomePage\n(React)" as homePage
+object ":diagrams.js\n(API Client)" as diagramsApi
+object ":AxiosClient" as axios
+object ":DiagramasRouter\n(FastAPI)" as router
+object ":Security\n(get_current_user)" as security
+object ":_helpers\n(_accessible_diagram_filter)" as helpers
+object ":Diagram\n(SQLAlchemy)" as model
+object ":PostgreSQL" as db
+
+' === Crear diagrama ===
+user --> homePage : 1: click "Nuevo Diagrama"
+homePage --> diagramsApi : 1.1: createDiagram(title)
+diagramsApi --> axios : 1.2: POST /diagrams {title}
+axios --> router : 1.3: HTTP POST
+router --> security : 1.4: get_current_user(token)
+security --> router : 1.5: User(me)
+router --> model : 1.6: Diagram(title, owner_id=me.id)
+model --> db : 1.7: INSERT INTO diagram
+db --> model : 1.8: diagram row
+model --> router : 1.9: DiagramOut
+router --> axios : 1.10: HTTP 201 JSON
+axios --> homePage : 1.11: diagram data
+homePage --> user : 1.12: muestra nuevo diagrama en lista
+
+' === Listar diagramas ===
+user --> homePage : 2: abre HomePage
+homePage --> diagramsApi : 2.1: listDiagrams(page, limit)
+diagramsApi --> axios : 2.2: GET /diagrams?page=1&limit=20
+axios --> router : 2.3: HTTP GET
+router --> security : 2.4: get_current_user(token)
+router --> helpers : 2.5: _accessible_diagram_filter(me)
+helpers --> model : 2.6: filter(owner_id=me OR collaborator)
+model --> db : 2.7: SELECT con filtro + ORDER BY updated_at DESC
+db --> router : 2.8: {items, page, limit, total}
+router --> homePage : 2.9: DiagramList
+
+' === Eliminar diagrama ===
+user --> homePage : 3: click "Eliminar"
+homePage --> diagramsApi : 3.1: deleteDiagram(id)
+diagramsApi --> axios : 3.2: DELETE /diagrams/{id}
+axios --> router : 3.3: HTTP DELETE
+router --> security : 3.4: get_current_user(token)
+router --> model : 3.5: filter(id, owner_id=me.id)
+model --> db : 3.6: DELETE FROM diagram WHERE id=?
+router --> homePage : 3.7: HTTP 204
+
+@enduml

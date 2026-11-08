@@ -1,0 +1,105 @@
+name: uml_collab_mobile
+description: >
+  App móvil del editor colaborativo de diagramas de clases UML. Habla con el
+  mismo backend FastAPI que la versión web (mismos diagramas, misma
+  colaboración en tiempo real), y agrega un asistente de edición por voz o
+  texto que corre 100% offline: reconocimiento de voz con Vosk y un modelo de
+  lenguaje chico (Gemma 3 1B IT, cuantizado GGUF Q4_K_M, empaquetado dentro
+  del propio APK) corriendo en el teléfono con llama.cpp. Además puede
+  conectarse a CUALQUIER backend Spring Boot generado por el diagramador
+  (protocolo UAP, ver lib/uap/) y ofrecer el mismo asistente de voz/texto
+  para operar sus datos, sin conocer su dominio de antemano. No depende de
+  ningún proveedor de IA en la nube.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ---- Red / estado ----
+  http: ^1.2.2
+  web_socket_channel: ^3.0.1
+  provider: ^6.1.2
+  shared_preferences: ^2.3.2
+
+  # ---- IA local ----
+  # LLM local (GGUF vía llama.cpp) con soporte de tool-calling/salida
+  # estructurada, que es lo que necesitamos para que el modelo elija qué
+  # función de la API llamar (create_class, add_attribute, etc.) en vez de
+  # solo charlar.
+  #
+  # Pin en 0.6.9 (no la última) a propósito: versiones <0.6.9 tienen un bug
+  # real y confirmado (SIGILL al cargar CUALQUIER modelo GGUF en chips sin
+  # soporte i8mm/dotprod -- ej. Snapdragon 662/680, Exynos 1380; el binario
+  # nativo de llama.cpp usa kernels KleidiAI sin verificar en runtime si el
+  # CPU los soporta). Arreglado en 0.6.9, que agrega selección automática
+  # de variante de CPU en runtime. Ver
+  # https://github.com/leehack/llamadart/issues/95
+  llamadart: ^0.6.9
+  # Reconocimiento de voz offline (modelo español chico, ~50MB).
+  vosk_flutter_2: ^1.0.5
+
+  # ---- Utilidades ----
+  path_provider: ^2.1.4
+  permission_handler: ^11.3.1
+  uuid: ^4.5.1
+  intl: ^0.19.0
+  # Descomprimir el .zip del modelo Vosk descargado en tiempo de ejecución.
+  # llamadart >=0.6.9 exige archive ^4.0.7; vosk_flutter_2 1.0.5 declara
+  # ^3.4.2 pero solo usa ZipDecoder().decodeBytes()/extractArchiveToDisk(),
+  # una API estable que no cambió entre 3.x y 4.x -- se fuerza la 4.x acá
+  # y con dependency_overrides abajo (verificado leyendo el código real de
+  # vosk_flutter_2, no solo el rango declarado).
+  archive: ^4.0.7
+  collection: ^1.18.0
+
+  # ---- UAP: cliente genérico + offline-first ----
+  # Persistencia local (local_records/sync_outbox/sync_metadata/identity_map,
+  # ver lib/db/) para poder listar/crear/editar/borrar sin conexión contra
+  # un backend Spring Boot generado.
+  sqflite: ^2.4.4
+  # Detecta cambios de conectividad para disparar la sincronización sin
+  # tener que hacer polling agresivo (ver lib/uap/connection_manager.dart).
+  connectivity_plus: ^7.3.1
+  # Texto a voz nativo de Android (offline, usa las voces ya instaladas en
+  # el sistema) para el modo Alexa -- Vosk sigue siendo el reconocimiento
+  # de voz (texto a voz y voz a texto son motores separados).
+  flutter_tts: ^4.2.5
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  # SQLite en el test runner de escritorio (no hay un dispositivo Android
+  # real corriendo los tests): permite testear local_repository.dart con
+  # una base de datos real en vez de mockear todo el acceso a datos.
+  sqflite_common_ffi: ^2.4.3
+
+# vosk_flutter_2 1.0.5 declara archive ^3.4.2 en su pubspec, lo que choca
+# con lo que llamadart >=0.6.9 necesita (^4.0.7). Se fuerza acá porque ya
+# se verificó que el uso real de archive en vosk_flutter_2 (ver comentario
+# arriba) es compatible con la 4.x -- si una futura versión de
+# vosk_flutter_2 usa una API distinta, este override puede necesitar
+# revisión.
+dependency_overrides:
+  archive: ^4.0.7
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    # El modelo Gemma 3 1B (GGUF Q4_K_M, ~700-900MB) va EMPAQUETADO acá
+    # dentro del APK -- Flutter lo copia al bundle en tiempo de build, y
+    # ensureLlmModel() (ver lib/services/model_downloader.dart) lo copia
+    # de ahí al almacenamiento privado de la app en el primer arranque. El
+    # archivo .gguf en sí NO se versiona en git (ver mobile/.gitignore):
+    # hay que descargarlo aparte antes de compilar (ver mobile/README.md).
+    # El modelo Vosk español, en cambio, sigue descargándose en runtime
+    # (pesa mucho menos, ~50MB, y no justifica inflar el APK).
+    - assets/models/

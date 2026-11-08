@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:16
+    container_name: uml-diagramador-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-parcial_sw}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-parcial_sw}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: uml-diagramador-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_URL: postgresql+psycopg2://${DB_USER:-postgres}:${DB_PASSWORD:-devpassword}@db:5432/${DB_NAME:-parcial_sw}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      SEED_DEMO: ${SEED_DEMO:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://parcial-sw.duckdns.org}
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_URL: /api
+    container_name: uml-diagramador-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+
+volumes:
+  pgdata:

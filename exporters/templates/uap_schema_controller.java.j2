@@ -1,0 +1,75 @@
+package com.test.uap;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * GET /uap/v1/schema y GET /uap/v1/schema/{entity}
+ *
+ * JSON-Schema real (type/format/required) por entidad, derivado siempre de
+ * type_mapping.map_json_schema() del lado Python que generó este archivo
+ * -- nunca se declara un tipo a mano acá, para que el schema publicado no
+ * pueda mentir sobre el tipo Java real de la entidad generada al lado
+ * (ver {{ entities[0].class_name if entities else "la entidad" }}.java).
+ */
+@RestController
+@RequestMapping("/uap/v1/schema")
+public class UapSchemaController {
+
+    @GetMapping
+    public Map<String, Object> allSchemas() {
+        Map<String, Object> out = new LinkedHashMap<>();
+{% for e in entities %}
+        out.put("{{ e.entity_key }}", schemaFor{{ e.class_name }}());
+{% endfor %}
+        return out;
+    }
+
+    @GetMapping("/{entity}")
+    public ResponseEntity<Object> schemaFor(@PathVariable String entity) {
+        switch (entity) {
+{% for e in entities %}
+            case "{{ e.entity_key }}":
+                return ResponseEntity.ok(schemaFor{{ e.class_name }}());
+{% endfor %}
+            default:
+                Map<String, Object> error = new LinkedHashMap<>();
+                error.put("error", "entidad desconocida: " + entity);
+                error.put("candidates", List.of({{ entities | map(attribute='entity_key') | map('tojson') | join(', ') }}));
+                return ResponseEntity.status(404).body(error);
+        }
+    }
+
+{% for e in entities %}
+    private Map<String, Object> schemaFor{{ e.class_name }}() {
+        Map<String, Object> properties = new LinkedHashMap<>();
+{% for f in e.fields %}
+        {
+            Map<String, Object> field = new LinkedHashMap<>();
+            field.put("type", "{{ f.json_schema.type }}");
+{% if f.json_schema.format %}
+            field.put("format", "{{ f.json_schema.format }}");
+{% endif %}
+{% if f.is_id %}
+            field.put("readOnly", true);
+{% endif %}
+            properties.put("{{ f.name }}", field);
+        }
+{% endfor %}
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "object");
+        schema.put("properties", properties);
+        schema.put("required", List.of({{ e.writable_fields | selectattr('required') | map(attribute='name') | map('tojson') | join(', ') }}));
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("entity", "{{ e.entity_key }}");
+        body.put("schema", schema);
+        return body;
+    }
+
+{% endfor %}
+}

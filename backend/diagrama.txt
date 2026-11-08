@@ -1,0 +1,57 @@
+@startuml
+skinparam classAttributeIconSize 0
+
+class Usuario {
+  + id: int
+  + correo: str
+  + nombre: str
+  + password_hash: str
+  + rol: str
+  + activo: bool
+}
+
+class Diagrama {
+  + id: UUID
+  + titulo: str
+  + propietario_id: int
+  + actualizado_en: datetime
+}
+
+class ClaseUML {
+  + id: UUID
+  + diagrama_id: UUID
+  + nombre: str
+}
+
+class Atributo {
+  + id: UUID
+  + clase_id: UUID
+  + nombre: str
+  + tipo: str
+}
+
+class Metodo {
+  + id: UUID
+  + clase_id: UUID
+  + nombre: str
+  + tipo_retorno: str
+}
+
+class RelacionUML {
+  + id: UUID
+  + diagrama_id: UUID
+  + clase_origen: UUID
+  + clase_destino: UUID
+  + tipo: str   <<asociación, herencia, agregación...>>
+  + etiqueta: str
+}
+
+' Relaciones
+Usuario "1" -- "muchos" Diagrama : posee
+Diagrama "1" -- "muchos" ClaseUML : contiene
+ClaseUML "1" -- "muchos" Atributo : tiene
+ClaseUML "1" -- "muchos" Metodo : tiene
+Diagrama "1" -- "muchos" RelacionUML : define
+RelacionUML "clase_origen" --> ClaseUML
+RelacionUML "clase_destino" --> ClaseUML
+@enduml
