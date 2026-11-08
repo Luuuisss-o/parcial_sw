@@ -52,6 +52,7 @@ class _DiagramScreenState extends State<DiagramScreen> {
     _offClassDeleted = _realtime.on('class.deleted', (_) => _load());
     _offRelationChanged = _realtime.on('relation.created', (_) => _load());
     _offRelationDeleted = _realtime.on('relation.deleted', (_) => _load());
+    _offReconnected = _realtime.on('reconnected', (_) => _load());
   }
 
   final _realtime = RealtimeService();
@@ -60,6 +61,7 @@ class _DiagramScreenState extends State<DiagramScreen> {
   void Function()? _offClassDeleted;
   void Function()? _offRelationChanged;
   void Function()? _offRelationDeleted;
+  void Function()? _offReconnected;
 
   Future<void> _load() async {
     final app = context.read<AppState>();
@@ -89,6 +91,7 @@ class _DiagramScreenState extends State<DiagramScreen> {
     _offClassDeleted?.call();
     _offRelationChanged?.call();
     _offRelationDeleted?.call();
+    _offReconnected?.call();
     _realtime.disconnect();
     super.dispose();
   }

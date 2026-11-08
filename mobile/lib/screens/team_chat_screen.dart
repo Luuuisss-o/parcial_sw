@@ -64,6 +64,9 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
         final name = (d['requested_by'] as Map?)?['name'] as String? ?? 'alguien';
         setState(() => _pending[id] = d['on_device'] == true ? '$name (en su celular)' : name);
       }),
+      // Si el canal se cayó y volvió, recargar lo que no llegó en el medio
+      // (por ejemplo la respuesta de la IA del celular).
+      widget.realtime.on('reconnected', (_) => _loadHistory()),
       for (final ev in ['ai.done', 'ai.error'])
         widget.realtime.on(ev, (d) => setState(() => _pending.remove(d['request_id']))),
     ]);
