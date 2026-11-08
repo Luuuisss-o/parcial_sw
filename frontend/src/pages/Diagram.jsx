@@ -25,7 +25,7 @@ import ClassCard from "../components/canvas/ClassCard";
 import ConnectionLayer from "../components/canvas/ConnectionLayer";
 import Inspector from "../components/panels/Inspector";
 import RelationInspector from "../components/panels/RelationInspector";
-import AiAssistantPanel from "../components/panels/AiAssistantPanel";
+import ChatPanel from "../components/panels/ChatPanel";
 import CollaboratorsModal from "../components/panels/CollaboratorsModal";
 import AssociationClassModal from "../components/panels/AssociationClassModal";
 import HelpGuide from "../components/common/HelpGuide";
@@ -591,7 +591,7 @@ export default function DiagramDashboard() {
             </div>
           )}
 
-          <AiAssistantPanel diagramId={diagram.id} />
+          <ChatPanel diagramId={diagram.id} myEmail={email} />
         </main>
 
         {/* ---------------- Panel derecho ---------------- */}

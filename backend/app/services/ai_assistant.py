@@ -22,15 +22,12 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from uuid import UUID
 
 from google import genai
 
 from app.core.config import settings
-from app.db import SessionLocal
 from app.models.uml import Diagram
 from app.services.ai_tools import DiagramToolExecutor, ToolError, TOOLS
-from app.utils import realtime_events
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +70,26 @@ que ejecutaste. Nunca inventes cambios que no hiciste. Si una herramienta \
 devuelve error, leelo y corregi si podes (ej. el usuario escribio mal un \
 nombre que se parece a una clase existente); si no podes, explicale al \
 usuario que paso.
+
+Chat grupal (varios usuarios a la vez):
+- Trabajas dentro del chat grupal del diagrama. Varios colaboradores te \
+  escriben y TODOS ven tus respuestas, asi que en cada consulta se te indica \
+  QUIEN te esta preguntando (nombre y email).
+- Dirigite SIEMPRE a esa persona por su nombre de pila al empezar la \
+  respuesta (ej: "Ana, ya cree la clase Cliente..."). Nunca le respondas a \
+  otro colaborador ni mezcles su pedido con el de otra persona.
+- Si se te pasan consultas previas de esa misma persona, usalas para \
+  entender referencias como "agregale otro atributo" o "esa clase", pero \
+  responde solo a la consulta actual.
 """
+
+
+@dataclass
+class Requester:
+    """Quien le hace la consulta a la IA (CU-16)."""
+    user_id: int | None
+    name: str
+    email: str | None = None
 
 
 @dataclass
@@ -103,7 +119,28 @@ def _describe(actions: list[dict]) -> str:
     return ", ".join(partes)
 
 
-def run_command(db, diagram: Diagram, user_text: str) -> AiCommandResult:
+def build_prompt(state_json: str, user_text: str, requester: Requester | None = None,
+                 history: list[tuple[str, str]] | None = None) -> str:
+    """Arma el mensaje para el modelo: quien pregunta, su historial con la IA
+    en este diagrama y el estado actual del diagrama."""
+    partes: list[str] = []
+    if requester is not None:
+        contacto = f" ({requester.email})" if requester.email else ""
+        partes.append(f"Usuario que te consulta: {requester.name}{contacto}")
+        if history:
+            lineas = [f"Consultas previas de {requester.name} en este diagrama (de la mas vieja a la mas nueva):"]
+            for i, (pregunta, respuesta) in enumerate(history, 1):
+                lineas.append(f"{i}. {requester.name} pregunto: {pregunta}")
+                lineas.append(f"   Vos respondiste: {respuesta}")
+            partes.append("\n".join(lineas))
+    partes.append(f"Estado actual del diagrama (JSON):\n{state_json}")
+    quien = f" de {requester.name}" if requester is not None else " del usuario"
+    partes.append(f"Instruccion actual{quien}:\n{user_text}")
+    return "\n\n".join(partes)
+
+
+def run_command(db, diagram: Diagram, user_text: str, requester: Requester | None = None,
+                history: list[tuple[str, str]] | None = None) -> AiCommandResult:
     if not settings.GEMINI_API_KEY:
         raise RuntimeError(
             "GEMINI_API_KEY no esta configurada en el backend (.env)."
@@ -113,10 +150,7 @@ def run_command(db, diagram: Diagram, user_text: str) -> AiCommandResult:
     executor = DiagramToolExecutor(db, diagram)
 
     state = json.dumps(executor.snapshot(), ensure_ascii=False)
-    prompt = (
-        f"Estado actual del diagrama (JSON):\n{state}\n\n"
-        f"Instruccion del usuario:\n{user_text}"
-    )
+    prompt = build_prompt(state, user_text, requester=requester, history=history)
 
     actions: list[dict] = []
 
@@ -205,6 +239,9 @@ def run_command(db, diagram: Diagram, user_text: str) -> AiCommandResult:
 # En vez de eso el comando se procesa en segundo plano y el progreso viaja
 # por el WebSocket que ya usa la colaboracion en tiempo real: el usuario ve
 # aparecer cada clase/atributo en el diagrama a medida que se ejecutan.
+# El runner en segundo plano vive en app/services/chat_service.py
+# (run_ai_question_background), porque toda consulta a la IA pasa ahora por
+# el chat grupal del diagrama.
 
 # Mensajes segun el tipo de error. El SDK de Gemini expone la jerarquia de
 # excepciones de la API de "interactions" desde un modulo interno, y depender
@@ -228,32 +265,3 @@ def describe_error(e: Exception) -> str:
         type(e).__name__.lower(),
         f"Error inesperado del asistente: {e}",
     )
-
-
-def run_command_background(diagram_id: UUID, user_text: str) -> None:
-    """Procesa un comando y publica el resultado por WebSocket.
-
-    Corre fuera del ciclo de la peticion HTTP, por lo que abre su propia
-    sesion de base de datos (la del request ya esta cerrada para cuando
-    esto arranca).
-    """
-    db = SessionLocal()
-    try:
-        diagram = db.query(Diagram).filter(Diagram.id == diagram_id).one_or_none()
-        if not diagram:
-            logger.warning(f"[AI COMMAND] diagrama {diagram_id} ya no existe")
-            return
-
-        realtime_events.fire(realtime_events.notify_ai_started(diagram_id, user_text))
-        try:
-            result = run_command(db, diagram, user_text)
-            realtime_events.fire(
-                realtime_events.notify_ai_done(diagram_id, result.reply, result.actions)
-            )
-        except Exception as e:
-            logger.error(f"[AI COMMAND] fallo: {type(e).__name__}: {e}")
-            realtime_events.fire(
-                realtime_events.notify_ai_error(diagram_id, describe_error(e))
-            )
-    finally:
-        db.close()

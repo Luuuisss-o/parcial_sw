@@ -16,16 +16,32 @@ class WSManager:
         # Lo necesitan las notificaciones disparadas desde endpoints sincronos
         # (corren en un worker thread sin loop propio, ej. el asistente de IA).
         self.main_loop: Optional[asyncio.AbstractEventLoop] = None
+        # Quien esta detras de cada socket ({user_id, name, email}), para la
+        # lista de "conectados ahora" del chat grupal.
+        self.connection_meta: Dict[WebSocket, dict] = {}
 
-    async def connect(self, diagram_id: str, websocket: WebSocket):
+    async def connect(self, diagram_id: str, websocket: WebSocket, meta: Optional[dict] = None):
         """Registrar nueva conexión en un diagrama"""
         await websocket.accept()
         if diagram_id not in self.active_connections:
             self.active_connections[diagram_id] = []
         self.active_connections[diagram_id].append(websocket)
+        if meta is not None:
+            self.connection_meta[websocket] = meta
+
+    def presence(self, diagram_id: str) -> List[dict]:
+        """Usuarios conectados al diagrama, sin repetir: la misma persona con
+        dos pestañas abiertas aparece una sola vez."""
+        seen: Dict[str, dict] = {}
+        for ws in self.active_connections.get(diagram_id, []):
+            meta = self.connection_meta.get(ws)
+            if meta and meta.get("email") not in seen:
+                seen[meta["email"]] = meta
+        return sorted(seen.values(), key=lambda m: (m.get("name") or "").lower())
 
     def disconnect(self, diagram_id: str, websocket: WebSocket):
         """Eliminar conexión cuando se desconecta"""
+        self.connection_meta.pop(websocket, None)
         if diagram_id in self.active_connections:
             if websocket in self.active_connections[diagram_id]:
                 self.active_connections[diagram_id].remove(websocket)

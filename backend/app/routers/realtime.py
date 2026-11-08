@@ -18,10 +18,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/diagrams", tags=["realtime"])
 
 
-def _authenticate(token: str | None, diagram_id: str) -> tuple[str, str] | None:
+def _authenticate(token: str | None, diagram_id: str) -> tuple[str, str, int] | None:
     """Valida el token y que el diagrama exista y le pertenezca al usuario.
-    Devuelve (email, nombre) si esta todo bien, None si hay que rechazar la
-    conexion.
+    Devuelve (email, nombre, user_id) si esta todo bien, None si hay que
+    rechazar la conexion.
 
     El WebSocket nativo del navegador no permite mandar headers custom, asi
     que el token viaja por query string (?token=...) en vez del header
@@ -59,7 +59,7 @@ def _authenticate(token: str | None, diagram_id: str) -> tuple[str, str] | None:
         )
         if not diagram:
             return None
-        return email, user.name
+        return email, user.name, user.id
     finally:
         db.close()
 
@@ -101,6 +101,9 @@ async def websocket_endpoint(websocket: WebSocket, diagram_id: str):
       lock.denied    -> {class_id, locked_by, locked_by_conn_id}  (solo al que lo pidio)
       cursor.move    -> {conn_id, name, color, x, y, label}       (cursor en vivo de otro colaborador)
       cursor.left    -> {conn_id}                                 (alguien se fue o dejo de mover el mouse)
+      presence       -> [{user_id, name, email, color}, ...]      (quienes estan conectados; al entrar/salir alguien)
+      chat.message   -> mensaje del chat grupal (ver app/schemas/chat.py), de un colaborador o de la IA
+      ai.started / ai.done / ai.error -> progreso de una consulta a la IA, con request_id y requested_by
 
     Mensajes que puede mandar el cliente para el cursor en vivo:
       {"action": "cursor", "x": <float>, "y": <float>, "label": "<opcional>"}
@@ -124,14 +127,20 @@ async def websocket_endpoint(websocket: WebSocket, diagram_id: str):
     if auth is None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
-    email, name = auth
+    email, name, user_id = auth
 
     conn_id = str(id(websocket))
-    await ws_manager.connect(diagram_id, websocket)
+    await ws_manager.connect(diagram_id, websocket, meta={
+        "user_id": user_id, "name": name, "email": email, "color": _cursor_color(email),
+    })
     await websocket.send_json({"event": "connected", "data": {"conn_id": conn_id}})
     await websocket.send_json({
         "event": "locks.snapshot",
         "data": lock_manager.snapshot(diagram_id),
+    })
+    await ws_manager.broadcast(diagram_id, {
+        "event": "presence",
+        "data": ws_manager.presence(diagram_id),
     })
 
     try:
@@ -210,4 +219,8 @@ async def websocket_endpoint(websocket: WebSocket, diagram_id: str):
         await ws_manager.broadcast(diagram_id, {
             "event": "cursor.left",
             "data": {"conn_id": conn_id},
+        })
+        await ws_manager.broadcast(diagram_id, {
+            "event": "presence",
+            "data": ws_manager.presence(diagram_id),
         })

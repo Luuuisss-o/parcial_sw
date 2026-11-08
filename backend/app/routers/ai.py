@@ -9,7 +9,7 @@ from app.db import get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.ai import AiCommandIn, AiCommandAccepted
-from app.services.ai_assistant import run_command_background
+from app.services import chat_service
 from ._helpers import get_my_diagram
 
 logger = logging.getLogger(__name__)
@@ -29,14 +29,20 @@ def ai_command(
     db: Session = Depends(get_db),
     me: User = Depends(get_current_user),
 ):
-    """Encola un comando en lenguaje natural para editar el diagrama.
+    """Encola una consulta/comando en lenguaje natural para la IA.
 
-    Responde de inmediato: el comando se procesa en segundo plano y tanto el
-    progreso (cada clase/atributo creado) como el resultado final viajan por
-    el WebSocket del diagrama. Ver app/services/ai_assistant.py.
+    Desde la Fase 2 toda consulta a la IA es publica: se registra como una
+    pregunta en el chat grupal del diagrama (igual que escribir "@IA ..." en
+    POST /diagrams/{id}/chat) y la respuesta llega como mensaje del chat
+    dirigido a quien pregunto, visible para todos los colaboradores.
+
+    Responde de inmediato: el progreso (cada clase/atributo creado) y el
+    resultado final viajan por el WebSocket del diagrama.
     """
     diagram = get_my_diagram(db, me, diagram_id)  # valida permisos del usuario
     logger.info(f"[AI COMMAND] diagram_id={diagram_id}, user={me.id}, text={body.text!r}")
 
-    background_tasks.add_task(run_command_background, diagram.id, body.text)
-    return AiCommandAccepted(status="processing")
+    question = chat_service.create_user_message(db, diagram, me, body.text.strip(), asks_ai=True)
+    chat_service.publish(diagram.id, question)
+    background_tasks.add_task(chat_service.run_ai_question_background, question.id)
+    return AiCommandAccepted(status="processing", request_id=question.id)
