@@ -30,6 +30,13 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       SEED_DEMO: ${SEED_DEMO:-false}
       CORS_ORIGINS: ${CORS_ORIGINS:-https://parcial-sw.duckdns.org}
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      MODELS_DIR: /app/data/models
+    volumes:
+      - assistant_models:/app/data/models
 
   frontend:
     build:
@@ -48,4 +55,5 @@ services:
       - /etc/letsencrypt:/etc/letsencrypt:ro
 
 volumes:
+  assistant_models:
   pgdata:

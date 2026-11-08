@@ -192,16 +192,20 @@ class UmlRelation {
       return v as int;
     }
 
+    // El backend devuelve nombres en inglés al CREAR (from_class, type...) y
+    // en español al LISTAR (origen_id, tipo, mult_origen_min...) -- ver
+    // CONTEXTO_PROYECTO.md, sección 12. Se aceptan los dos, igual que el
+    // frontend web (antes listRelations fallaba con "Null is not a String").
     return UmlRelation(
       id: json['id'] as String,
-      fromClassId: json['from_class'] as String,
-      toClassId: json['to_class'] as String,
-      type: relationTypeFromString(json['type'] as String),
-      label: json['label'] as String?,
-      srcMultMin: (json['src_mult_min'] ?? 1) as int,
-      srcMultMax: parseMax(json['src_mult_max']),
-      dstMultMin: (json['dst_mult_min'] ?? 1) as int,
-      dstMultMax: parseMax(json['dst_mult_max']),
+      fromClassId: (json['from_class'] ?? json['origen_id']) as String,
+      toClassId: (json['to_class'] ?? json['destino_id']) as String,
+      type: relationTypeFromString((json['type'] ?? json['tipo']) as String),
+      label: (json['label'] ?? json['etiqueta']) as String?,
+      srcMultMin: (json['src_mult_min'] ?? json['mult_origen_min'] ?? 1) as int,
+      srcMultMax: parseMax(json['src_mult_max'] ?? json['mult_origen_max']),
+      dstMultMin: (json['dst_mult_min'] ?? json['mult_destino_min'] ?? 1) as int,
+      dstMultMax: parseMax(json['dst_mult_max'] ?? json['mult_destino_max']),
       originName: (json['origen_nombre'] ?? '') as String,
       destinationName: (json['destino_nombre'] ?? '') as String,
     );

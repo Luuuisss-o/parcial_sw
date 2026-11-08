@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     AI_BASE_URL: str = ""
     AI_MODEL: str = ""
     AI_API_KEY: str = ""
+    # Donde se aloja el modelo personalizado que descarga el celular.
+    MODELS_DIR: str = "data/models"
 
     class Config:
         env_file = ".env"

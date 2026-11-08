@@ -33,7 +33,7 @@ grupo.
 
 **Prioridad Baja (opcional / puntos extra)**
 *   **[Corrección] Modelo LLM local — "valorable", no obligatorio:** *"Debe ser un modelo local. Sin embargo, esto lo vamos a dejar como valorable. Es decir, no es obligatorio."* El docente advierte que *"el modelo tiene que ser un modelo poderoso. Un modelo simple no se va a poder"*, que un modelo mediano necesita hardware, y propone como alternativas *"algo similar a Google Colab para arriba"* o, si no es posible, *"cualquier otro modelo"* (cuenta universitaria de Google AI Studio).
-    *   *El audio no menciona que el modelo deba correr en el celular ni que deba estar entrenado/personalizado (fine-tuning). Pendiente de confirmar con el docente antes de implementarlo de esa forma.*
+    *   *El audio no menciona el celular ni el entrenamiento; se implementaron las dos modalidades (CU-17): proveedor local/Colab para el servidor y modelo personalizado que corre en el celular.*
 
 ---
 
@@ -63,7 +63,9 @@ grupo.
 *   **Actores:** Dueño (o administrador del sistema).
 *   **Propósito:** conmutar entre un servicio de IA basado en API (Gemini / Google AI Studio) y un modelo LLM local o desplegado en un entorno como Google Colab.
 *   **Resumen:** se define el *endpoint* y el token de la IA; el sistema enruta las peticiones del asistente (CU-08, CU-15, CU-16) al proveedor elegido sin romper la interfaz de comunicación del backend.
-*   **Estado:** pendiente; ver la nota de la Prioridad Baja.
+*   **Implementación (dos modalidades):**
+    *   **Proveedor del servidor configurable por diagrama:** Gemini (Google AI Studio) o cualquier servidor con API compatible con OpenAI — un modelo local con Ollama / LM Studio, o uno servido desde Google Colab (vLLM / llama.cpp). El dueño define endpoint, modelo y token desde el chat ("Guardar y probar conexión"); el token nunca se devuelve por la API. `llm_providers.py`, `GET/PATCH /diagrams/{id}/ai/settings`, `POST /diagrams/{id}/ai/settings/test`.
+    *   **Modelo personalizado en el celular:** Gemma 3 1B entrenado con LoRA en Colab con un dataset propio del proyecto (comandos del diagramador, mentoría destilada de Gemini, comportamientos del chat grupal), exportado a GGUF. El servidor solo aloja el archivo (`PUT/GET /models/assistant`); el celular lo descarga, verifica el SHA-256 y responde localmente las consultas `@IA` de su usuario, que se publican en el chat para todo el equipo. `training/`, `mobile/lib/services/local_team_assistant.dart`.
 
 **CU-18. [Nuevo] Configurar la entrega de soluciones de la IA**
 *   **Actores:** Dueño (configura), Colaborador (consulta el estado).

@@ -56,6 +56,9 @@ dependencies:
   # vosk_flutter_2, no solo el rango declarado).
   archive: ^4.0.7
   collection: ^1.18.0
+  # SHA-256 del modelo personalizado descargado del servidor (se verifica
+  # contra el manifiesto antes de cargarlo).
+  crypto: ^3.0.3
 
   # ---- UAP: cliente genérico + offline-first ----
   # Persistencia local (local_records/sync_outbox/sync_metadata/identity_map,
@@ -80,6 +83,10 @@ dev_dependencies:
   # real corriendo los tests): permite testear local_repository.dart con
   # una base de datos real en vez de mockear todo el acceso a datos.
   sqflite_common_ffi: ^2.4.3
+  # Para simular el almacenamiento del teléfono en la prueba de integración
+  # del chat con el backend real (test/integration/).
+  path_provider_platform_interface: ^2.1.2
+  plugin_platform_interface: ^2.1.8
 
 # vosk_flutter_2 1.0.5 declara archive ^3.4.2 en su pubspec, lo que choca
 # con lo que llamadart >=0.6.9 necesita (^4.0.7). Se fuerza acá porque ya

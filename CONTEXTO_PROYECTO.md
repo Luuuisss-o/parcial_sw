@@ -115,6 +115,7 @@ FastAPI con capas: `routers/` (HTTP) → `services/`/lógica inline en el router
 | `relacion.py` | `/diagrams` | `POST /diagrams/{id}/relations`, `GET /diagrams/{id}/relations`, `PATCH/DELETE/GET /diagrams/relations/{relation_id}` |
 | `export.py` | `/diagrams` | `POST /diagrams/{id}/export-download` (dispara el pipeline de `exporters/`, ver sección 9) |
 | `ai.py` | `/diagrams` | `GET/PATCH /diagrams/{id}/ai/settings` (Fase 2: entrega de soluciones, PATCH solo dueño), `POST /diagrams/{id}/ai/command` (asíncrono, `202 Accepted`, usa `BackgroundTasks`). Desde la Fase 2 registra la consulta en el chat del diagrama (es pública) y devuelve `request_id` |
+| `models.py` | `/models` | `GET /models/assistant` (manifiesto), `GET /models/assistant/download` (GGUF, soporta Range), `PUT /models/assistant` (solo admin) — modelo personalizado que corre en el celular |
 | `chat.py` | `/diagrams` | `GET /diagrams/{id}/chat?limit=&before_seq=` (historial), `POST /diagrams/{id}/chat` `{text, ask_ai}` (Fase 2: chat grupal + consultas a la IA con `@IA`) |
 | `xmi.py` | `/diagrams` | `GET /diagrams/{id}/export-xmi`, `POST /diagrams/{id}/import-xmi` |
 | `vision.py` | `/vision` | `POST /vision/detect` (sube foto, Gemini transcribe, no crea nada), `POST /vision/apply` (crea el diagrama con lo ya revisado por el usuario) |
@@ -233,6 +234,7 @@ REST vía `api_client.dart` + WebSocket vía `realtime_service.dart`, ambos apun
 5. `b7d3f1a2c9e4_add_chat_message.py` — (Fase 2) crea la tabla `chat_message`.
 6. `c4e8a7d5b1f2_add_ai_mode_to_chat_message.py` — (Fase 2) agrega `chat_message.ai_mode` (`MENTOR`/`AUTO`).
 7. `d2f6b8c3a7e1_add_ai_solutions_enabled_to_diagram.py` — (Fase 2) agrega `diagram.ai_solutions_enabled`.
+8. `e5a9c1d4f8b3_add_ai_provider_to_diagram.py` — (Fase 2) proveedor de IA por diagrama + `chat_message.ai_model_label`.
 
 **Nombre de la base** (diagramador): `parcial_sw` (default de `POSTGRES_DB` en `docker-compose.yml`, configurable por variable de entorno `DB_NAME`).
 
@@ -267,7 +269,9 @@ Usuario → frontend (React) → PATCH/POST /diagrams/... → backend → Postgr
 
 **Rol de mentoría y memoria híbrida (Fase 2, prioridad media)**: el prompt de `ai_assistant.py` define dos roles: mentor de diseño de software (dudas teóricas: UML, patrones, requerimientos…) y ejecutor de ediciones. `classify_intent()` detecta de forma determinista las consultas claramente teóricas sin verbos de edición y las responde en modo `MENTOR`: el modelo se llama **sin herramientas**, así que no puede modificar el diagrama; la respuesta queda con `ai_mode="MENTOR"` y el chat la marca como "Mentoría". Ante la duda se usa `AUTO` (el modelo puede explicar y/o editar). El prompt lleva tres niveles de contexto: `[Contexto global]` estado del diagrama + conversación reciente del equipo (`chat_service.team_context`, últimos 12 mensajes, sin el ida y vuelta propio de quien pregunta) y `[Hilo individual]` consultas previas de esa persona (`user_ai_history`). Las respuestas de la IA se muestran con un renderizador mínimo de markdown (`components/common/ChatMarkdown.jsx`, sin HTML crudo).
 
-**Ubicación de clases creadas por la IA**: `DiagramToolExecutor.create_class` toma las coordenadas del modelo solo como sugerencia; si faltan o se superponen con otra clase, usa `_free_slot()` (grilla de 4 columnas). Antes todas quedaban en (0,0), o donde Gemini las ponía, una encima de otra.
+**Proveedor de IA y modelo en el celular (Fase 2, CU-17)**: el asistente del servidor usa `services/llm_providers.py` (Gemini o cualquier API compatible con OpenAI: Ollama, LM Studio, vLLM/llama.cpp en Colab), configurable por diagrama por su dueño (`diagram.ai_provider/ai_base_url/ai_model/ai_api_key`; el token nunca se devuelve). Cada respuesta guarda `chat_message.ai_model_label`. Además, la app móvil puede responder las consultas `@IA` de su usuario con un **modelo personalizado que corre en el teléfono**: se entrena en Colab (`training/finetune_colab.ipynb`, dataset de `training/build_dataset.py`), el backend solo lo aloja (`PUT/GET /models/assistant`, `MODELS_DIR`), y el celular usa `GET /diagrams/{id}/chat/{q}/context` + `POST .../answer` (pregunta enviada con `answer_on_device`). El prompt del modelo vive solo en `mobile/lib/services/assistant_prompt.dart`. Ver `training/README.md`.
+
+**Ubicación de clases creadas por la IA**: `DiagramToolExecutor.create_class` toma las coordenadas del modelo solo como sugerencia; si faltan o se superponen con otra clase, usa `_free_slot()` (grilla de 4 columnas). Antes todas quedaban en (0,0), o donde Gemini las ponía, una encima de otra. `POST /diagrams/{id}/classes` sin coordenadas (la app móvil) usa el mismo hueco libre.
 
 **Flujo de importar foto**: `POST /vision/detect` (sube imagen, Gemini Vision la transcribe a JSON, no se guarda nada aún) → usuario revisa/corrige en el frontend → `POST /vision/apply` (crea el diagrama real con lo confirmado).
 

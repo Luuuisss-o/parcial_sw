@@ -35,10 +35,11 @@ def fire(coro):
 # Asistente de IA
 # =========================
 async def notify_ai_started(diagram_id: UUID, text: str, request_id: str | None = None,
-                            requested_by: dict | None = None):
+                            requested_by: dict | None = None, on_device: bool = False):
     await ws_manager.broadcast(str(diagram_id), {
         "event": "ai.started",
-        "data": {"text": text, "request_id": request_id, "requested_by": requested_by},
+        "data": {"text": text, "request_id": request_id, "requested_by": requested_by,
+                 "on_device": on_device},
     })
 
 

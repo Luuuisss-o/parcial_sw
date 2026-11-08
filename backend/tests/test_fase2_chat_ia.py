@@ -649,3 +649,124 @@ def test_si_el_modelo_inventa_cambios_se_le_exige_usar_herramientas(team, monkey
         db.close()
     assert [a["tool"] for a in r.actions] == ["create_class"]
     assert "Factura" in nombres
+
+
+# ---------------------------------------------------------------------------
+# Modelo personalizado que corre en el CELULAR: alojamiento y respuestas
+# generadas en el dispositivo
+# ---------------------------------------------------------------------------
+import hashlib
+
+from app.models.user import Role
+
+
+@pytest.fixture()
+def models_dir(tmp_path, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "MODELS_DIR", str(tmp_path / "models"))
+    return tmp_path / "models"
+
+
+@pytest.fixture()
+def admin(team):
+    db = SessionLocal()
+    u = db.get(User, team["ana"]["id"])
+    u.role = Role.admin
+    db.commit()
+    db.close()
+    return team["ana"]
+
+
+def test_alojar_y_descargar_modelo_personalizado(client, team, admin, models_dir):
+    fake_gguf = b"GGUF" + bytes(range(256)) * 400
+    h = _h(admin)
+    assert client.get("/models/assistant", headers=h).json() == {
+        "available": False, "version": None, "sha256": None, "size_bytes": None, "base_model": None,
+        "notes": None, "uploaded_at": None, "uploaded_by": None, "download_path": None}
+
+    # Un colaborador comun no puede publicar; un archivo que no es GGUF se rechaza
+    files = {"file": ("m.gguf", fake_gguf, "application/octet-stream")}
+    assert client.put("/models/assistant", files=files, data={"version": "1"}, headers=_h(team["bruno"])).status_code == 403
+    bad = {"file": ("m.gguf", b"PK\x03\x04zip", "application/octet-stream")}
+    assert client.put("/models/assistant", files=bad, data={"version": "1"}, headers=h).status_code == 422
+    assert client.put("/models/assistant", files=files, data={"version": "a b"}, headers=h).status_code == 422
+
+    r = client.put("/models/assistant", files=files,
+                   data={"version": "2026.11.08-1", "base_model": "google/gemma-3-1b-it"}, headers=h)
+    assert r.status_code == 200, r.text
+    m = r.json()
+    assert m["available"] and m["sha256"] == hashlib.sha256(fake_gguf).hexdigest()
+    assert m["size_bytes"] == len(fake_gguf) and m["download_path"] == "/models/assistant/download"
+
+    # Cualquier usuario logueado lo descarga; soporta reanudar con Range
+    full = client.get("/models/assistant/download", headers=_h(team["bruno"]))
+    assert full.status_code == 200 and full.content == fake_gguf
+    part = client.get("/models/assistant/download", headers={**_h(team["bruno"]), "Range": "bytes=100-"})
+    assert part.status_code == 206 and part.content == fake_gguf[100:]
+    assert client.get("/models/assistant/download").status_code in (401, 403)
+
+
+def test_consulta_respondida_por_el_modelo_del_celular(client, team, fake_ai):
+    calls, behaviour = fake_ai
+    did = team["diagram_id"]
+    ana, bruno = team["ana"], team["bruno"]
+    # Historial previo de Bruno con la IA (del servidor) + un mensaje de Ana al equipo
+    behaviour["reply"] = "Bruno, una clase abstracta es..."
+    client.post(f"/diagrams/{did}/chat", json={"text": "@IA qué es una clase abstracta?"}, headers=_h(bruno))
+    client.post(f"/diagrams/{did}/chat", json={"text": "usemos herencia para Persona"}, headers=_h(ana))
+    n_calls = len(calls)
+
+    with _ws(client, did, ana) as ws_ana:
+        q = client.post(f"/diagrams/{did}/chat",
+                        json={"text": "@IA no me acuerdo qué es un atributo derivado", "answer_on_device": True},
+                        headers=_h(bruno)).json()
+        assert len(calls) == n_calls  # el servidor NO llamo a ningun modelo
+        started = _wait(ws_ana, "ai.started", lambda d: d["request_id"] == q["id"])
+        assert started["on_device"] is True and started["requested_by"]["name"] == "Bruno Díaz"
+
+        # El celular pide el contexto (misma memoria hibrida que el servidor)
+        assert client.get(f"/diagrams/{did}/chat/{q['id']}/context", headers=_h(ana)).status_code == 403
+        ctx = client.get(f"/diagrams/{did}/chat/{q['id']}/context", headers=_h(bruno)).json()
+        assert ctx["question"] == "no me acuerdo qué es un atributo derivado"
+        assert ctx["requester_name"] == "Bruno Díaz" and ctx["mode"] == "MENTOR"
+        assert ctx["history"] == [{"question": "qué es una clase abstracta?", "answer": "Bruno, una clase abstracta es..."}]
+        assert {"author": "Ana Pérez", "content": "usemos herencia para Persona", "is_ai": False,
+                "addressed_to": None} in ctx["team_context"]
+        assert "clases" in ctx["diagram"] and ctx["solutions_enabled"] is False
+
+        # Solo el autor publica la respuesta de su modelo local
+        body = {"content": "un atributo derivado se calcula a partir de otros.", "ai_mode": "MENTOR",
+                "model_label": "Gemma 3 1B UML (móvil)"}
+        assert client.post(f"/diagrams/{did}/chat/{q['id']}/answer", json=body, headers=_h(ana)).status_code == 403
+        r = client.post(f"/diagrams/{did}/chat/{q['id']}/answer", json=body, headers=_h(bruno))
+        assert r.status_code == 201, r.text
+        a = _wait(ws_ana, "chat.message", lambda d: d["role"] == "ASSISTANT" and d["reply_to_id"] == q["id"])
+        assert a["content"].startswith("Bruno,")  # dirigida por nombre aunque el modelo chico lo olvide
+        assert a["addressed_to_name"] == "Bruno Díaz" and a["ai_model_label"] == "Gemma 3 1B UML (móvil)"
+        assert a["ai_mode"] == "MENTOR"
+        _wait(ws_ana, "ai.done", lambda d: d["request_id"] == q["id"])
+
+    assert client.post(f"/diagrams/{did}/chat/{q['id']}/answer", json=body, headers=_h(bruno)).status_code == 409
+
+
+def test_error_del_modelo_del_celular_queda_publico(client, team):
+    did = team["diagram_id"]
+    q = client.post(f"/diagrams/{did}/chat", json={"text": "@IA creá Pago", "answer_on_device": True},
+                    headers=_h(team["bruno"])).json()
+    r = client.post(f"/diagrams/{did}/chat/{q['id']}/answer",
+                    json={"error": "El modelo local no está descargado.", "model_label": "Gemma (móvil)"},
+                    headers=_h(team["bruno"]))
+    assert r.status_code == 201 and r.json()["role"] == "ERROR"
+    assert r.json()["content"] == "Bruno, El modelo local no está descargado."
+
+
+def test_clases_creadas_sin_coordenadas_no_se_superponen(client, team):
+    """La app movil crea clases sin posicion: antes quedaban todas en (0, 0)."""
+    did = team["diagram_id"]
+    h = _h(team["ana"])
+    pos = [client.post(f"/diagrams/{did}/classes", json={"name": n}, headers=h).json() for n in ("A", "B", "C")]
+    coords = {(c["x_grid"], c["y_grid"]) for c in pos}
+    assert len(coords) == 3
+    # Con coordenadas explicitas (la web) se respetan tal cual, aunque sean (0, 0).
+    c = client.post(f"/diagrams/{did}/classes", json={"name": "D", "x_grid": 0, "y_grid": 0}, headers=h).json()
+    assert (c["x_grid"], c["y_grid"]) == (0, 0)

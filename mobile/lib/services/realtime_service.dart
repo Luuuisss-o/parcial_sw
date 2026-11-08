@@ -47,7 +47,13 @@ class RealtimeService {
           return;
         }
         final event = msg['event'] as String?;
-        final data = (msg['data'] as Map?)?.cast<String, dynamic>() ?? {};
+        // La mayoría de los eventos traen un objeto, pero algunos (ej.
+        // "presence", Fase 2) traen una lista: se entrega como {"items": [...]}
+        // en vez de romper con un cast inválido.
+        final rawData = msg['data'];
+        final data = rawData is Map
+            ? rawData.cast<String, dynamic>()
+            : <String, dynamic>{if (rawData is List) 'items': rawData};
         if (event == 'connected') {
           _connId = data['conn_id'] as String?;
           return;

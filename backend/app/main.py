@@ -12,6 +12,7 @@ from app.routers import xmi
 from app.routers import vision
 from app.routers import voice
 from app.routers import chat
+from app.routers import models as models_router
 from app.ws_manager import ws_manager
 app = FastAPI(title="UML AI Tool API")
 # Sin emoji a propósito: con --reload, el proceso worker que crea uvicorn en
@@ -56,5 +57,6 @@ app.include_router(xmi.router)
 app.include_router(vision.router)
 app.include_router(voice.router)
 app.include_router(chat.router)
+app.include_router(models_router.router)
 # Router WebSocket (colaboración en tiempo real)
 app.include_router(realtime.router)

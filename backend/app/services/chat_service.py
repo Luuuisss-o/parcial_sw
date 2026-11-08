@@ -269,3 +269,52 @@ def run_ai_question_background(question_id: UUID) -> None:
             ))
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Respuestas generadas en el celular (modelo local personalizado)
+# ---------------------------------------------------------------------------
+def device_context(db: Session, question: ChatMessage, diagram: Diagram) -> dict:
+    """Mismo contexto hibrido que recibe el modelo del servidor, para que el
+    modelo local del celular responda con la misma memoria."""
+    from app.services.ai_tools import DiagramToolExecutor
+    text = question_text(question.content)
+    history = user_ai_history(db, diagram.id, question.author_id, question.seq) if question.author_id else []
+    team = team_context(db, diagram.id, question.seq, exclude_user_id=question.author_id)
+    return {
+        "question_id": question.id,
+        "question": text,
+        "requester_name": question.author_name,
+        "requester_email": question.author_email,
+        "history": [{"question": q, "answer": a} for q, a in history],
+        "team_context": [
+            {"author": m.author, "content": m.content, "is_ai": m.is_ai, "addressed_to": m.addressed_to}
+            for m in team
+        ],
+        "diagram": DiagramToolExecutor(db, diagram).snapshot(),
+        "solutions_enabled": diagram.ai_solutions_enabled,
+        "mode": ai_assistant.classify_intent(text),
+    }
+
+
+def save_device_answer(db: Session, question: ChatMessage, *, content: str | None, error: str | None,
+                       actions: list | None, ai_mode: str | None, model_label: str | None) -> ChatMessage:
+    """Publica la respuesta del modelo local del celular como cualquier otra
+    respuesta de la IA: dirigida a quien pregunto y visible para todos."""
+    requested_by = {"id": question.author_id, "name": question.author_name}
+    label = model_label or "Modelo local (móvil)"
+    if error or not (content or "").strip():
+        detail = address_reply(error or "El modelo local no generó una respuesta.", question.author_name)
+        msg = _save_ai_message(db, question, ChatRole.ERROR, detail, model_label=label)
+        publish(question.diagram_id, msg)
+        realtime_events.fire(realtime_events.notify_ai_error(
+            question.diagram_id, detail, request_id=str(question.id), requested_by=requested_by))
+        return msg
+    reply = address_reply(content, question.author_name)
+    msg = _save_ai_message(db, question, ChatRole.ASSISTANT, reply, actions, ai_mode=ai_mode or "AUTO",
+                           model_label=label)
+    publish(question.diagram_id, msg)
+    realtime_events.fire(realtime_events.notify_ai_done(
+        question.diagram_id, reply, actions or [], request_id=str(question.id),
+        requested_by=requested_by, message_id=str(msg.id)))
+    return msg

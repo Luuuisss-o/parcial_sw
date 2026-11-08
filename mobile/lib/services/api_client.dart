@@ -7,6 +7,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config.dart';
+import '../models/chat.dart';
 import '../models/diagram.dart';
 import 'auth_service.dart';
 
@@ -215,4 +216,69 @@ class ApiClient {
     final resp = await http.delete(_u('/diagrams/relations/$relationId'), headers: _headers);
     _decodeOrThrow(resp);
   }
+
+  // ---------------------------------------------------------------
+  // Chat del equipo (Fase 2) -- mismo contrato que frontend/src/api/chat.js
+  // ---------------------------------------------------------------
+
+  Future<List<ChatMessage>> listChat(String diagramId, {int limit = 50}) async {
+    final resp = await http.get(_u('/diagrams/$diagramId/chat', {'limit': limit}), headers: _headers);
+    final data = _decodeOrThrow(resp) as Map<String, dynamic>;
+    return (data['items'] as List).map((m) => ChatMessage.fromJson(m as Map<String, dynamic>)).toList();
+  }
+
+  /// `answerOnDevice`: la consulta a la IA la responde el modelo local de
+  /// ESTE celular (el servidor no llama a ningún modelo).
+  Future<ChatMessage> sendChat(String diagramId, String text,
+      {bool askAi = false, bool answerOnDevice = false}) async {
+    final resp = await http.post(
+      _u('/diagrams/$diagramId/chat'),
+      headers: _headers,
+      body: jsonEncode({'text': text, 'ask_ai': askAi, 'answer_on_device': answerOnDevice}),
+    );
+    return ChatMessage.fromJson(_decodeOrThrow(resp) as Map<String, dynamic>);
+  }
+
+  /// Memoria híbrida + estado del diagrama para responder una consulta
+  /// propia con el modelo local (ver assistant_prompt.dart).
+  Future<Map<String, dynamic>> questionContext(String diagramId, String questionId) async {
+    final resp = await http.get(_u('/diagrams/$diagramId/chat/$questionId/context'), headers: _headers);
+    return _decodeOrThrow(resp) as Map<String, dynamic>;
+  }
+
+  /// Publica en el chat (para todo el equipo) la respuesta del modelo local.
+  Future<ChatMessage> postDeviceAnswer(
+    String diagramId,
+    String questionId, {
+    String? content,
+    String? error,
+    List<Map<String, dynamic>>? actions,
+    String? aiMode,
+    String? modelLabel,
+  }) async {
+    final resp = await http.post(
+      _u('/diagrams/$diagramId/chat/$questionId/answer'),
+      headers: _headers,
+      body: jsonEncode({
+        if (content != null) 'content': content,
+        if (error != null) 'error': error,
+        if (actions != null) 'actions': actions,
+        if (aiMode != null) 'ai_mode': aiMode,
+        if (modelLabel != null) 'model_label': modelLabel,
+      }),
+    );
+    return ChatMessage.fromJson(_decodeOrThrow(resp) as Map<String, dynamic>);
+  }
+
+  // ---------------------------------------------------------------
+  // Modelo personalizado alojado en el servidor (corre en el celular)
+  // ---------------------------------------------------------------
+
+  Future<ModelManifest> assistantModelManifest() async {
+    final resp = await http.get(_u('/models/assistant'), headers: _headers);
+    return ModelManifest.fromJson(_decodeOrThrow(resp) as Map<String, dynamic>);
+  }
+
+  Uri assistantModelUri(String path) => _u(path);
+  Map<String, String> get authHeaders => {if (auth.token != null) 'Authorization': 'Bearer ${auth.token}'};
 }

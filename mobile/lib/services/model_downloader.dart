@@ -9,11 +9,16 @@
 // el primer arranque (llamadart necesita una ruta de archivo real en
 // disco, no puede leer directo desde el bundle de assets de Flutter).
 
+import 'dart:async';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:archive/archive_io.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/chat.dart';
+import 'api_client.dart';
 
 class ModelDownloader {
   static const llmModelFileName = 'assistant.gguf';
@@ -103,5 +108,89 @@ class ModelDownloader {
     }
     onProgress(1.0);
     await File(zipPath).delete();
+  }
+
+  // ---------------------------------------------------------------
+  // Modelo PERSONALIZADO alojado en el servidor (Fase 2)
+  // ---------------------------------------------------------------
+  // El modelo se entrena en Colab (training/finetune_colab.ipynb) y se
+  // publica en el backend (PUT /models/assistant). El servidor solo lo
+  // aloja: acá se descarga y después corre 100% en el teléfono. Si el
+  // servidor no tiene ninguno, se usa el modelo base empaquetado en el APK.
+
+  static const customModelFileName = 'assistant-custom.gguf';
+  static const _prefVersion = 'custom_model_version';
+  static const _prefSha = 'custom_model_sha256';
+
+  Future<String> customModelPath() async => '${(await _modelsDir()).path}/$customModelFileName';
+
+  /// Versión del modelo personalizado ya descargada y verificada (o null).
+  Future<String?> installedCustomVersion() async {
+    final prefs = await SharedPreferences.getInstance();
+    final v = prefs.getString(_prefVersion);
+    if (v == null || !await File(await customModelPath()).exists()) return null;
+    return v;
+  }
+
+  /// Si el servidor tiene una versión distinta a la instalada, la descarga.
+  /// Devuelve el manifiesto del servidor (o null si no hay modelo
+  /// personalizado o no hay conexión: en ese caso se sigue con lo que haya).
+  Future<ModelManifest?> syncCustomModel(
+    ApiClient api, {
+    required void Function(double progress) onProgress,
+  }) async {
+    final ModelManifest manifest;
+    try {
+      manifest = await api.assistantModelManifest();
+    } catch (_) {
+      return null; // sin red: offline-first, se usa el modelo ya instalado
+    }
+    if (!manifest.available || manifest.sha256 == null || manifest.downloadPath == null) return null;
+
+    final prefs = await SharedPreferences.getInstance();
+    final path = await customModelPath();
+    if (prefs.getString(_prefSha) == manifest.sha256 && await File(path).exists()) {
+      onProgress(1.0);
+      return manifest;
+    }
+
+    final part = File('$path.part');
+    var have = await part.exists() ? await part.length() : 0;
+    final req = http.Request('GET', api.assistantModelUri(manifest.downloadPath!))
+      ..headers.addAll(api.authHeaders);
+    // Reanudación: si quedó una descarga cortada, se pide solo lo que falta.
+    if (have > 0) req.headers['Range'] = 'bytes=$have-';
+    final client = http.Client();
+    try {
+      final resp = await client.send(req);
+      if (resp.statusCode == 200) {
+        have = 0; // el servidor ignoró el Range: se empieza de cero
+      } else if (resp.statusCode != 206) {
+        throw Exception('No se pudo descargar el modelo personalizado (HTTP ${resp.statusCode})');
+      }
+      final total = manifest.sizeBytes ?? (have + (resp.contentLength ?? 0));
+      final sink = part.openWrite(mode: have > 0 ? FileMode.append : FileMode.write);
+      var received = have;
+      await for (final chunk in resp.stream) {
+        sink.add(chunk);
+        received += chunk.length;
+        if (total > 0) onProgress((received / total).clamp(0, 0.98).toDouble());
+      }
+      await sink.close();
+    } finally {
+      client.close();
+    }
+
+    // Integridad: el archivo tiene que coincidir con el SHA-256 publicado.
+    final digest = await sha256.bind(part.openRead()).first;
+    if (digest.toString() != manifest.sha256) {
+      await part.delete();
+      throw Exception('El modelo descargado está corrupto (SHA-256 no coincide). Reintentá.');
+    }
+    await part.rename(path);
+    await prefs.setString(_prefVersion, manifest.version ?? '?');
+    await prefs.setString(_prefSha, manifest.sha256!);
+    onProgress(1.0);
+    return manifest;
   }
 }

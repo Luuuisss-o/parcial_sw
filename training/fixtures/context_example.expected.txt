@@ -1,0 +1,17 @@
+Quien pregunta: Bruno Díaz
+Entrega de soluciones: DESACTIVADA
+
+Diagrama actual:
+Persona(nombre: String, fechaNacimiento: LocalDate; saludar(): void)
+Curso()
+Persona -[ASSOCIATION]-> Curso
+
+Conversación reciente del equipo:
+- Ana Pérez: propongo que Persona sea la clase base
+- IA (a Ana Pérez): Ana, creé la clase Curso.
+
+Consultas previas de Bruno Díaz a la IA:
+- Bruno Díaz: qué es un atributo derivado?
+  IA: Bruno, es un atributo que se calcula a partir de otros.
+
+Consulta actual de Bruno Díaz: agregale un atributo derivado edad

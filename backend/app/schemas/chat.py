@@ -14,6 +14,9 @@ class ChatMessageIn(BaseModel):
     # Alternativa explicita a escribir "@IA" en el texto (el boton de la IA
     # del panel lo manda en True). Cualquiera de las dos marca la consulta.
     ask_ai: bool = False
+    # La consulta la responde el modelo local del CELULAR de quien pregunta
+    # (no el servidor): ver POST /chat/{id}/answer.
+    answer_on_device: bool = False
 
     @field_validator("text")
     @classmethod
@@ -49,3 +52,26 @@ class ChatHistoryOut(BaseModel):
     items: List[ChatMessageOut]
     # Hay mensajes mas viejos que los devueltos (paginacion hacia atras con ?before_seq=).
     has_more: bool
+
+
+class DeviceAnswerIn(BaseModel):
+    """Respuesta que generó el modelo local del celular de quien preguntó."""
+    content: Optional[str] = Field(None, max_length=MAX_CHAT_LEN)
+    error: Optional[str] = Field(None, max_length=1000)
+    actions: Optional[list] = None
+    ai_mode: Optional[str] = Field(None, pattern="^(AUTO|MENTOR)$")
+    model_label: Optional[str] = Field(None, max_length=200)
+
+
+class AiContextOut(BaseModel):
+    """Contexto que el celular necesita para responder con su modelo local:
+    el mismo que arma el servidor para Gemini (memoria hibrida)."""
+    question_id: UUID
+    question: str
+    requester_name: str
+    requester_email: Optional[str] = None
+    history: List[dict]        # [{question, answer}] del mismo usuario
+    team_context: List[dict]   # [{author, content, is_ai, addressed_to}]
+    diagram: dict              # snapshot (clases, atributos, metodos, relaciones)
+    solutions_enabled: bool
+    mode: str                  # "MENTOR" | "AUTO" (clasificacion del servidor)

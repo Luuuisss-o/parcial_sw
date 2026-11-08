@@ -16,6 +16,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models/diagram.dart';
 import '../services/realtime_service.dart';
+import 'team_chat_screen.dart';
 import 'assistant_screen.dart';
 
 class DiagramScreen extends StatefulWidget {
@@ -118,6 +119,17 @@ class _DiagramScreenState extends State<DiagramScreen> {
       floatingActionButton: Column(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
+          FloatingActionButton(
+            heroTag: 'team-chat',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => TeamChatScreen(diagramId: widget.diagramId, title: widget.title, realtime: _realtime),
+              ),
+            ),
+            tooltip: 'Chat del equipo (IA local en el celular)',
+            child: const Icon(Icons.forum),
+          ),
+          const SizedBox(height: 12),
           FloatingActionButton(
             heroTag: 'assistant',
             onPressed: () => Navigator.of(context).push(

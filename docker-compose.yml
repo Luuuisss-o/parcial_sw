@@ -35,6 +35,15 @@ services:
       # (mismo origen http://localhost:5173 desde el navegador), pero el
       # backend igual valida el header Origin en cada preflight CORS.
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      # Proveedor de IA por defecto (Fase 2, CU-17). Vacio = Gemini.
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      # Modelo personalizado que descargan los celulares (Fase 2).
+      MODELS_DIR: /app/data/models
+    volumes:
+      - assistant_models:/app/data/models
     ports:
       - "8000:8000"
 
@@ -52,6 +61,8 @@ services:
       - "5173:80"
 
 volumes:
+  # Modelo de IA personalizado subido desde Colab (sobrevive a rebuilds).
+  assistant_models:
   # Volumen EXISTENTE creado antes, fuera de este compose: se reusa tal cual
   # para no perder los datos ya cargados. El nombre real del volumen externo
   # varia por entorno (en local es un hash autogenerado, en el EC2 de
