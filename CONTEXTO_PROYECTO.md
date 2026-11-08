@@ -114,7 +114,8 @@ FastAPI con capas: `routers/` (HTTP) → `services/`/lógica inline en el router
 | `metodo.py` | `/diagrams` | mismo patrón que atributos, para `methods` |
 | `relacion.py` | `/diagrams` | `POST /diagrams/{id}/relations`, `GET /diagrams/{id}/relations`, `PATCH/DELETE/GET /diagrams/relations/{relation_id}` |
 | `export.py` | `/diagrams` | `POST /diagrams/{id}/export-download` (dispara el pipeline de `exporters/`, ver sección 9) |
-| `ai.py` | `/diagrams` | `POST /diagrams/{id}/ai/command` (asíncrono, `202 Accepted`, usa `BackgroundTasks`) |
+| `ai.py` | `/diagrams` | `GET/PATCH /diagrams/{id}/ai/settings` (Fase 2: entrega de soluciones, PATCH solo dueño), `POST /diagrams/{id}/ai/command` (asíncrono, `202 Accepted`, usa `BackgroundTasks`). Desde la Fase 2 registra la consulta en el chat del diagrama (es pública) y devuelve `request_id` |
+| `chat.py` | `/diagrams` | `GET /diagrams/{id}/chat?limit=&before_seq=` (historial), `POST /diagrams/{id}/chat` `{text, ask_ai}` (Fase 2: chat grupal + consultas a la IA con `@IA`) |
 | `xmi.py` | `/diagrams` | `GET /diagrams/{id}/export-xmi`, `POST /diagrams/{id}/import-xmi` |
 | `vision.py` | `/vision` | `POST /vision/detect` (sube foto, Gemini transcribe, no crea nada), `POST /vision/apply` (crea el diagrama con lo ya revisado por el usuario) |
 | `realtime.py` | `/diagrams` | `WS /diagrams/{id}/ws` (WebSocket, ver protocolo abajo) |
@@ -126,7 +127,7 @@ FastAPI con capas: `routers/` (HTTP) → `services/`/lógica inline en el router
 ### WebSocket (`WS /diagrams/{diagram_id}/ws`)
 Autenticación por query string (`?token=...`, no por header, porque el WebSocket nativo del navegador no permite headers custom). Protocolo (documentado en el docstring de `realtime.py`):
 - El cliente puede mandar: `{"action": "lock"|"unlock", "class_id": "..."}` (exclusión mutua por clase) y `{"action": "cursor", "x", "y", "label"}` / `{"action": "cursor_left"}` (cursores en vivo).
-- El servidor emite: `connected`, `locks.snapshot`, `class.locked`, `class.unlocked`, `lock.denied`, `cursor.move`, `cursor.left`.
+- El servidor emite: `connected`, `locks.snapshot`, `class.locked`, `class.unlocked`, `lock.denied`, `cursor.move`, `cursor.left`, y desde la Fase 2: `presence` (lista de usuarios conectados, sin repetir pestañas), `chat.message` (mensaje nuevo del chat, de un colaborador o de la IA) y `ai.started`/`ai.done`/`ai.error` con `request_id` + `requested_by` (quién preguntó).
 - Cada conexión tiene un `conn_id` propio (no el email) para distinguir pestañas del mismo usuario.
 - El color de cada cursor se calcula por checksum del email (no `hash()`, que varía entre reinicios del proceso), sobre una paleta fija de 8 colores.
 
@@ -222,11 +223,16 @@ REST vía `api_client.dart` + WebSocket vía `realtime_service.dart`, ambos apun
 | `relacion` | `id` (PK UUID), `diagram_id` (FK), `origen_id`/`destino_id` (FK → clase.id), `tipo` (enum: ASSOCIATION/AGGREGATION/COMPOSITION/INHERITANCE/DEPENDENCY), `etiqueta`, anclajes visuales (`src_anchor`, `dst_anchor`, offsets, lanes), multiplicidad (`mult_origen_min/max`, `mult_destino_min/max`) | — |
 | `atributo` | `id` (PK UUID), `nombre`, `tipo` (string libre, default "string"), `requerido` (bool), `clase_id` (FK) | único por (clase_id, nombre) |
 | `metodo` | `id` (PK UUID), `nombre`, `tipo_retorno` (default "void"), `clase_id` (FK) | único por (clase_id, nombre) |
+| `chat_message` (Fase 2) | `id` (PK UUID), `diagram_id` (FK), `role` (enum: USER/ASSISTANT/ERROR), `author_id` (FK user, NULL para la IA), `author_name`, `author_email`, `content`, `asks_ai`, `reply_to_id` (FK chat_message), `addressed_to_id`/`addressed_to_name` (a quién responde la IA), `actions` (JSONB), `created_at`, `seq` (identity, orden total) | N por diagrama |
 
 **Migraciones** (`backend/alembic/versions/`, 3 archivos en orden):
 1. `a112c4d14f5b_init_schema.py` — esquema inicial (crea todas las tablas base excepto `diagram_collaborator`).
 2. `cd269a313b01_add_unique_constraint_on_attribute_and_.py` — agrega constraints únicos `uq_atributo_clase_nombre` (clase_id, nombre) y `uq_metodo_clase_nombre` (clase_id, nombre); el `downgrade()` los elimina, como es estándar.
 3. `3f9f653ec7cc_add_diagram_collaborators.py` — crea la tabla `diagram_collaborator`.
+4. `8a1c2e4f6b90_add_es_clase_asociacion_to_relacion.py` — agrega `relacion.es_clase_asociacion`.
+5. `b7d3f1a2c9e4_add_chat_message.py` — (Fase 2) crea la tabla `chat_message`.
+6. `c4e8a7d5b1f2_add_ai_mode_to_chat_message.py` — (Fase 2) agrega `chat_message.ai_mode` (`MENTOR`/`AUTO`).
+7. `d2f6b8c3a7e1_add_ai_solutions_enabled_to_diagram.py` — (Fase 2) agrega `diagram.ai_solutions_enabled`.
 
 **Nombre de la base** (diagramador): `parcial_sw` (default de `POSTGRES_DB` en `docker-compose.yml`, configurable por variable de entorno `DB_NAME`).
 
@@ -257,6 +263,12 @@ Usuario → frontend (React) → PATCH/POST /diagrams/... → backend → Postgr
 
 **Flujo de asistente de IA (texto, web)**: `POST /diagrams/{id}/ai/command` → encolado con `BackgroundTasks` → llama a Gemini con el contrato de "tools" → aplica la tool elegida sobre la base → notifica el cambio por WebSocket.
 
+**Flujo de chat grupal y consultas a la IA (Fase 2, CU-14/15/16)**: `POST /diagrams/{id}/chat` guarda el mensaje y lo difunde como `chat.message` a todos los conectados. Si el texto contiene `@IA` (o `ask_ai=true`), además `chat_service.run_ai_question_background` llama al modelo indicándole **quién pregunta** (nombre + email) y el historial de consultas previas de **ese mismo usuario** en el diagrama; la respuesta se guarda dirigida a esa persona (`addressed_to_*`, `reply_to_id`) y se difunde a todos. Si el modelo no nombra a quien preguntó, `chat_service.address_reply` antepone su nombre. En el frontend, `ChatPanel.jsx` (+ `hooks/useTeamChat.js`) reemplaza al antiguo panel privado del asistente.
+
+**Rol de mentoría y memoria híbrida (Fase 2, prioridad media)**: el prompt de `ai_assistant.py` define dos roles: mentor de diseño de software (dudas teóricas: UML, patrones, requerimientos…) y ejecutor de ediciones. `classify_intent()` detecta de forma determinista las consultas claramente teóricas sin verbos de edición y las responde en modo `MENTOR`: el modelo se llama **sin herramientas**, así que no puede modificar el diagrama; la respuesta queda con `ai_mode="MENTOR"` y el chat la marca como "Mentoría". Ante la duda se usa `AUTO` (el modelo puede explicar y/o editar). El prompt lleva tres niveles de contexto: `[Contexto global]` estado del diagrama + conversación reciente del equipo (`chat_service.team_context`, últimos 12 mensajes, sin el ida y vuelta propio de quien pregunta) y `[Hilo individual]` consultas previas de esa persona (`user_ai_history`). Las respuestas de la IA se muestran con un renderizador mínimo de markdown (`components/common/ChatMarkdown.jsx`, sin HTML crudo).
+
+**Ubicación de clases creadas por la IA**: `DiagramToolExecutor.create_class` toma las coordenadas del modelo solo como sugerencia; si faltan o se superponen con otra clase, usa `_free_slot()` (grilla de 4 columnas). Antes todas quedaban en (0,0), o donde Gemini las ponía, una encima de otra.
+
 **Flujo de importar foto**: `POST /vision/detect` (sube imagen, Gemini Vision la transcribe a JSON, no se guarda nada aún) → usuario revisa/corrige en el frontend → `POST /vision/apply` (crea el diagrama real con lo confirmado).
 
 ## 10. Funcionalidades implementadas
@@ -282,7 +294,7 @@ Confirmado funcionando (probado en esta sesión con Docker real, no solo revisi�
 - **El nombre de campo en las respuestas del backend es inconsistente entre endpoints a propósito conocido, no por error**: algunos devuelven español directo del ORM (`origen_id`, `tipo`, `mult_origen_max`) y otros usan alias en inglés (`from_class`, `type`). El frontend ya maneja ambos casos con `??` en varios lugares. Si se toca esto, hay que revisar TODOS los consumidores (frontend web y, eventualmente, mobile).
 - **Los nombres de clase/atributo se normalizan a identificadores Java válidos únicamente en el pipeline de exportación** (`uml_to_json._normalize_diagram`), nunca en la base de datos ni en el diagrama que ve el usuario en el editor. El diagrama guardado conserva los nombres originales (con espacios, tildes, lo que sea) tal cual los escribió el usuario o los leyó Gemini de una foto.
 - **Puertos fijos y separados entre el diagramador y cualquier backend Spring Boot exportado**, a propósito para poder correr ambos Docker Compose a la vez sin conflicto: diagramador en 5433/8000/5173, backend exportado en 5434/8090.
-- **El asistente de IA (tanto web como el diseño previsto para mobile) nunca genera un diagrama completo desde una descripción de negocio.** Es una restricción explícita de la cátedra: solo ejecuta ediciones puntuales que el usuario ya pidió.
+- **Entrega de soluciones de la IA (web): configurable por diagrama desde la Fase 2.** Por defecto (`diagram.ai_solutions_enabled = false`) rige la regla de la Fase 1: la IA no genera un diagrama completo desde una descripción de negocio, solo ediciones puntuales. El docente pidió en la Fase 2 que la IA pueda "entregar soluciones cuando así se lo requieran" y que sea configurable: el dueño lo activa con `PATCH /diagrams/{id}/ai/settings` (ver `docs/ESPECIFICACION_FASE_2.md`, CU-18). El asistente local de la app móvil mantiene la restricción original.
 - **La detección de foto nunca aplica cambios directo**: siempre hay un paso de revisión humana (`/vision/detect` → frontend → `/vision/apply`) antes de tocar la base de datos.
 - **El timeout de Axios para `/vision/detect` es más largo (90s) que el default global (10s) a propósito**, porque el backend reintenta contra Gemini con backoff y puede tardar más que el default. El timeout de proxy de nginx (100s) es a su vez mayor que el de Axios, también a propósito, para que nginx nunca corte una respuesta que el backend está por mandar.
 

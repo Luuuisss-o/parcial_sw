@@ -14,6 +14,10 @@ let socket = null;
 let currentDiagramId = null;
 let myConnId = null; // id de ESTA conexion, para distinguir mis locks de los de otra pestaña/persona
 const listeners = new Map(); // event -> Set<callback>
+// Último snapshot de presencia ("quién está conectado"): el backend lo manda
+// una sola vez al entrar alguien, y el panel de chat puede montarse después
+// de ese mensaje, así que se guarda para poder leerlo en cualquier momento.
+let lastPresence = [];
 
 function emit(event, data) {
   const subs = listeners.get(event);
@@ -36,6 +40,7 @@ export function connect(diagramId) {
   closeSocket();
   currentDiagramId = diagramId;
   myConnId = null;
+  lastPresence = [];
   // El WebSocket nativo del navegador no permite mandar headers custom
   // (no hay forma de poner Authorization ahí), así que el token viaja por
   // query string. El backend lo valida antes de aceptar la conexión.
@@ -59,6 +64,7 @@ export function connect(diagramId) {
       myConnId = msg.data?.conn_id ?? null;
       return;
     }
+    if (msg.event === "presence") lastPresence = Array.isArray(msg.data) ? msg.data : [];
     emit(msg.event, msg.data);
   };
 
@@ -85,6 +91,7 @@ function closeSocket() {
 export function disconnect() {
   closeSocket();
   currentDiagramId = null;
+  lastPresence = [];
 }
 
 function send(payload) {
@@ -114,6 +121,11 @@ export function sendCursor(x, y, label) {
 /** Avisa que dejé de mover el mouse sobre el lienzo (se fue o cambió de pantalla). */
 export function sendCursorLeft() {
   send({ action: "cursor_left" });
+}
+
+/** Usuarios conectados ahora al diagrama: [{user_id, name, email, color}]. */
+export function getPresence() {
+  return lastPresence;
 }
 
 /** El id de conexión que me asignó el backend (null hasta que llega). */

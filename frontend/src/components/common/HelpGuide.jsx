@@ -27,9 +27,9 @@ const PASOS = [
   },
   {
     icon: "sparkles",
-    titulo: "4. O pedíselo al asistente",
+    titulo: "4. Conversá con tu equipo y con la IA",
     detalle:
-      "Abrí el «Asistente» abajo a la derecha y escribí (o dictá por voz) lo que querés: «creá una clase Cliente con nombre y email». Lo aplica al instante sobre el mismo diagrama.",
+      "Abrí el «Chat del equipo» abajo a la derecha para hablar con los demás colaboradores en tiempo real. Para pedirle algo al asistente empezá el mensaje con «@IA» (o tocá el botón ✨): «@IA creá una clase Cliente con nombre y email». También podés hacerle preguntas teóricas («@IA ¿qué es un requerimiento delegado?»): responde como mentor de diseño sin tocar el diagrama. Todo el equipo ve la pregunta y la respuesta, y la IA te responde a vos por tu nombre. Si el dueño del diagrama lo habilita (interruptor en el chat), la IA también puede entregar soluciones completas: «@IA armame el diagrama de una veterinaria».",
   },
   {
     icon: "download",

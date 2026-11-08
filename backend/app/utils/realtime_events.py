@@ -34,25 +34,44 @@ def fire(coro):
 # =========================
 # Asistente de IA
 # =========================
-async def notify_ai_started(diagram_id: UUID, text: str):
+async def notify_ai_started(diagram_id: UUID, text: str, request_id: str | None = None,
+                            requested_by: dict | None = None):
     await ws_manager.broadcast(str(diagram_id), {
         "event": "ai.started",
-        "data": {"text": text},
+        "data": {"text": text, "request_id": request_id, "requested_by": requested_by},
     })
 
 
-async def notify_ai_done(diagram_id: UUID, reply: str, actions: list):
+async def notify_ai_done(diagram_id: UUID, reply: str, actions: list, request_id: str | None = None,
+                         requested_by: dict | None = None, message_id: str | None = None):
     await ws_manager.broadcast(str(diagram_id), {
         "event": "ai.done",
-        "data": {"reply": reply, "actions": actions},
+        "data": {
+            "reply": reply, "actions": actions, "request_id": request_id,
+            "requested_by": requested_by, "message_id": message_id,
+        },
     })
 
 
-async def notify_ai_error(diagram_id: UUID, detail: str):
+async def notify_ai_error(diagram_id: UUID, detail: str, request_id: str | None = None,
+                          requested_by: dict | None = None):
     await ws_manager.broadcast(str(diagram_id), {
         "event": "ai.error",
-        "data": {"detail": detail},
+        "data": {"detail": detail, "request_id": request_id, "requested_by": requested_by},
     })
+
+
+async def notify_ai_settings(diagram_id: UUID, settings: dict):
+    """Cambio en la configuracion de la IA del diagrama (lo hace el dueño)."""
+    await ws_manager.broadcast(str(diagram_id), {"event": "ai.settings", "data": settings})
+
+
+# =========================
+# Chat grupal y presencia
+# =========================
+async def notify_chat_message(diagram_id: UUID, message: dict):
+    """Un mensaje nuevo en el chat del diagrama (de un colaborador o de la IA)."""
+    await ws_manager.broadcast(str(diagram_id), {"event": "chat.message", "data": message})
 
 
 # =========================
