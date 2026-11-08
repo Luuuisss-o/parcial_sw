@@ -6,12 +6,11 @@
 // con ApiClient (que a su vez notifica a otros colaboradores por el mismo
 // WebSocket que usa la versión web).
 
-import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../app_state.dart';
-import '../models/diagram.dart';
-import '../services/local_llm_service.dart';
+import '../services/diagram_tool_runner.dart';
+import '../services/local_team_assistant.dart' show kMaxActionsPerAnswer;
 
 class AssistantScreen extends StatefulWidget {
   final String diagramId;
@@ -45,17 +44,16 @@ class _AssistantScreenState extends State<AssistantScreen> {
   Future<void> _prepare() async {
     final app = context.read<AppState>();
     try {
-      final llmDone = await app.downloader.isLlmDownloaded();
-      final voskDone = await app.downloader.isVoskDownloaded();
-
-      if (!llmDone) {
-        setState(() {
-          _stage = _Stage.downloading;
-          _downloadLabel = 'Preparando modelo de lenguaje (una sola vez)...';
-        });
-        await app.downloader.ensureLlmModel(onProgress: (p) => setState(() => _downloadProgress = p));
-      }
-      if (!voskDone) {
+      setState(() {
+        _stage = _Stage.downloading;
+        _downloadLabel = 'Preparando el modelo de IA (la primera vez se descarga, ~0,8 GB)...';
+      });
+      final model = await app.downloader.prepareAssistantModel(
+        app.api,
+        onProgress: (p) => mounted ? setState(() => _downloadProgress = p) : null,
+      );
+      app.llm.modelLabel = model.label;
+      if (!await app.downloader.isVoskDownloaded()) {
         setState(() {
           _stage = _Stage.downloading;
           _downloadLabel = 'Descargando modelo de voz en español (~50 MB, una sola vez)...';
@@ -65,9 +63,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
       }
 
       setState(() => _stage = _Stage.loadingEngine);
-      final llmPath = await app.downloader.llmModelPath();
       final voskPath = await app.downloader.voskModelPath();
-      await app.llm.load(llmPath);
+      await app.llm.load(model.path);
       await app.speech.load(voskPath);
 
       if (!mounted) return;
@@ -115,19 +112,43 @@ class _AssistantScreenState extends State<AssistantScreen> {
     _textCtrl.clear();
 
     try {
+      // Mismo contrato con el que se entrenó el modelo personalizado (el del
+      // chat del equipo, assistant_prompt.dart) y mismo ejecutor de
+      // acciones: con el prompt viejo de resolveCommand el modelo
+      // personalizado contesta en otro formato.
       final classes = await app.api.listClasses(widget.diagramId);
-      final snapshot = {
-        'classes': classes
-            .map((c) => {
-                  'name': c.name,
-                  'attributes': c.attributes.map((a) => {'name': a.name, 'type': a.type, 'required': a.required}).toList(),
-                  'methods': c.methods.map((m) => {'name': m.name, 'return_type': m.returnType}).toList(),
-                })
-            .toList(),
+      final relations = await app.api.listRelations(widget.diagramId);
+      final me = (app.auth.email ?? 'usuario').split('@').first;
+      final ctx = <String, dynamic>{
+        'requester_name': me,
+        'solutions_enabled': false,
+        'question': text,
+        'diagram': {
+          'clases': [
+            for (final c in classes)
+              {
+                'nombre': c.name,
+                'atributos': [for (final a in c.attributes) {'nombre': a.name, 'tipo': a.type}],
+                'metodos': [for (final m in c.methods) {'nombre': m.name, 'tipo_retorno': m.returnType}],
+              }
+          ],
+          'relaciones': [
+            for (final r in relations)
+              {'origen': r.originName, 'destino': r.destinationName, 'tipo': r.type.name.toUpperCase()}
+          ],
+        },
       };
-
-      final call = await app.llm.resolveCommand(userText: text, diagramSnapshot: snapshot);
-      final resultText = await _applyToolCall(app, classes, call);
+      final reply = await app.llm.answerTeamQuestion(ctx);
+      var actions = reply.actions;
+      if (actions.length > kMaxActionsPerAnswer) actions = actions.sublist(0, kMaxActionsPerAnswer);
+      final outcomes = actions.isEmpty
+          ? const <ActionOutcome>[]
+          : await DiagramToolRunner(app.api, widget.diagramId).runAll(actions);
+      final failed = outcomes.where((o) => !o.ok).map((o) => '- ${o.message}').toList();
+      final done = outcomes.where((o) => o.ok).map((o) => o.message).toList();
+      var resultText = reply.say.trim();
+      if (resultText.isEmpty) resultText = done.isNotEmpty ? done.join(' ') : '¿Podés repetirlo con otras palabras?';
+      if (failed.isNotEmpty) resultText += '\n\nNo pude aplicar todo:\n${failed.join('\n')}';
 
       setState(() {
         _history.add(_ChatEntry(text: resultText, isUser: false));
@@ -139,102 +160,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
         _history.add(_ChatEntry(text: 'No entendí ese pedido: $e', isUser: false));
         _thinking = false;
       });
-    }
-  }
-
-  Future<String> _applyToolCall(AppState app, List<UmlClass> classes, LlmToolCall call) async {
-    UmlClass? findClass(String? name) {
-      if (name == null) return null;
-      for (final c in classes) {
-        if (c.name.toLowerCase() == name.toLowerCase()) return c;
-      }
-      return null;
-    }
-
-    switch (call.tool) {
-      case 'clarify':
-        return call.arguments['message'] as String? ?? '¿Podés ser más específico?';
-
-      case 'create_class':
-        final name = call.arguments['name'] as String;
-        await app.api.createClass(widget.diagramId, name);
-        return 'Creé la clase "$name".';
-
-      case 'rename_class':
-        final cls = findClass(call.arguments['class_name'] as String?);
-        if (cls == null) return 'No encontré esa clase.';
-        final newName = call.arguments['new_name'] as String;
-        await app.api.updateClass(cls.id, {'name': newName});
-        return 'Renombré "${cls.name}" a "$newName".';
-
-      case 'delete_class':
-        final cls = findClass(call.arguments['class_name'] as String?);
-        if (cls == null) return 'No encontré esa clase.';
-        await app.api.deleteClass(cls.id);
-        return 'Eliminé la clase "${cls.name}".';
-
-      case 'add_attribute':
-        final cls = findClass(call.arguments['class_name'] as String?);
-        if (cls == null) return 'No encontré esa clase.';
-        final name = call.arguments['name'] as String;
-        final type = call.arguments['type'] as String? ?? 'String';
-        final required = call.arguments['required'] as bool? ?? false;
-        await app.api.createAttribute(cls.id, name, type, required: required);
-        return 'Agregué el atributo "$name: $type" a "${cls.name}".';
-
-      case 'delete_attribute':
-        final cls = findClass(call.arguments['class_name'] as String?);
-        if (cls == null) return 'No encontré esa clase.';
-        final attrName = (call.arguments['attribute_name'] as String).toLowerCase();
-        final attr = cls.attributes.where((a) => a.name.toLowerCase() == attrName).firstOrNull;
-        if (attr == null) return 'No encontré ese atributo en "${cls.name}".';
-        await app.api.deleteAttribute(attr.id);
-        return 'Eliminé el atributo "${attr.name}" de "${cls.name}".';
-
-      case 'add_method':
-        final cls = findClass(call.arguments['class_name'] as String?);
-        if (cls == null) return 'No encontré esa clase.';
-        final name = call.arguments['name'] as String;
-        final returnType = call.arguments['return_type'] as String? ?? 'void';
-        await app.api.createMethod(cls.id, name, returnType: returnType);
-        return 'Agregué el método "$name()" a "${cls.name}".';
-
-      case 'delete_method':
-        final cls = findClass(call.arguments['class_name'] as String?);
-        if (cls == null) return 'No encontré esa clase.';
-        final methodName = (call.arguments['method_name'] as String).toLowerCase();
-        final method = cls.methods.where((m) => m.name.toLowerCase() == methodName).firstOrNull;
-        if (method == null) return 'No encontré ese método en "${cls.name}".';
-        await app.api.deleteMethod(method.id);
-        return 'Eliminé el método "${method.name}" de "${cls.name}".';
-
-      case 'create_relation':
-        final from = findClass(call.arguments['from_class'] as String?);
-        final to = findClass(call.arguments['to_class'] as String?);
-        if (from == null || to == null) return 'No encontré alguna de las dos clases.';
-        final type = relationTypeFromString(call.arguments['type'] as String? ?? 'ASSOCIATION');
-        await app.api.createRelation(
-          diagramId: widget.diagramId,
-          fromClass: from.id,
-          toClass: to.id,
-          type: type,
-        );
-        return 'Creé la relación entre "${from.name}" y "${to.name}".';
-
-      case 'delete_relation':
-        final from = findClass(call.arguments['from_class'] as String?);
-        final to = findClass(call.arguments['to_class'] as String?);
-        if (from == null || to == null) return 'No encontré alguna de las dos clases.';
-        final relations = await app.api.listRelations(widget.diagramId);
-        final rel = relations
-            .where((r) => (r.fromClassId == from.id && r.toClassId == to.id) || (r.fromClassId == to.id && r.toClassId == from.id))
-            .firstOrNull;
-        if (rel == null) return 'No encontré esa relación.';
-        await app.api.deleteRelation(rel.id);
-        return 'Eliminé la relación entre "${from.name}" y "${to.name}".';
-
-      default:
-        return 'No reconozco esa acción ("${call.tool}").';
     }
   }
 

@@ -132,6 +132,39 @@ class ModelDownloader {
     return v;
   }
 
+  /// Modelo que usan TODAS las pantallas con IA local (chat del equipo,
+  /// asistente por voz, UAP): el personalizado del servidor (lo descarga o
+  /// actualiza si hace falta) y, si el servidor no tiene ninguno, el base
+  /// empaquetado en el APK. Antes el asistente por voz solo buscaba el del
+  /// APK, que no se empaqueta (assets/models/ queda vacío), y fallaba.
+  /// Devuelve la ruta y una etiqueta legible del modelo.
+  Future<({String path, String label})> prepareAssistantModel(
+    ApiClient api, {
+    required void Function(double progress) onProgress,
+  }) async {
+    Object? syncError;
+    try {
+      await syncCustomModel(api, onProgress: onProgress);
+    } catch (e) {
+      syncError = e; // ej. descarga cortada: se sigue con lo que haya
+    }
+    final installed = await installedCustomVersion();
+    if (installed != null) {
+      return (path: await customModelPath(), label: 'Gemma 3 1B personalizado v$installed (móvil)');
+    }
+    try {
+      await ensureLlmModel(onProgress: onProgress);
+      return (path: await llmModelPath(), label: 'Gemma 3 1B base (móvil)');
+    } catch (_) {
+      throw Exception(
+        syncError != null
+            ? 'No se pudo descargar el modelo de IA del servidor ($syncError). Revisá la conexión y reintentá.'
+            : 'No hay modelo de IA en el celular. Conectate a internet (mejor con WiFi, ~0,8 GB) '
+                'para descargar el modelo del servidor y reintentá.',
+      );
+    }
+  }
+
   /// Si el servidor tiene una versión distinta a la instalada, la descarga.
   /// Devuelve el manifiesto del servidor (o null si no hay modelo
   /// personalizado o no hay conexión: en ese caso se sigue con lo que haya).
