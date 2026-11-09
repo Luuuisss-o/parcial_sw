@@ -53,6 +53,14 @@ async def detect(
         raise HTTPException(status, str(e))
     except Exception as e:
         logger.error(f"[vision] fallo detectando diagrama: {type(e).__name__}: {e}")
+        # Gemini rechaza la imagen en si (danada, en blanco, demasiado chica):
+        # es un problema del archivo subido, no del servidor -> 422, no 502.
+        if getattr(e, "code", None) == 400 or "INVALID_ARGUMENT" in str(e):
+            raise HTTPException(
+                422,
+                "No se pudo leer la imagen (puede estar dañada, en blanco o ser demasiado chica). "
+                "Probá con otra foto del diagrama, nítida y de frente.",
+            )
         raise HTTPException(502, describe_error(e))
 
     if not result.classes:
