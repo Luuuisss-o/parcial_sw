@@ -45,7 +45,7 @@ revisión de código. Lo que no se pudo ejecutar figura como **PENDIENTE**.
 - `services/xmi.py`: XMI 2.1, perfil UML 2.1, identificadores estables por id de la base, `generalization` para herencia y `ownedEnd` con `aggregation` para composición/agregación.
 - **Corregido:** `Double`, `decimal` y `Long` se exportaban como el primitivo genérico `Real`/`Integer` y volvían como `float`/`int` (el backend generado perdía precisión). Ahora viajan como `uml:DataType` propios. Lo mismo para el tipo de retorno de los métodos.
 - Prueba automática: ida y vuelta (exportar → importar en un diagrama vacío) conserva clases, atributos con su tipo, herencia, composición y multiplicidades.
-- **PENDIENTE:** abrir el XMI exportado en Enterprise Architect (`Publish → Import/Export Package from XMI`) e importar un XMI exportado por EA. No hay EA en este entorno. Hay un proyecto EA en `docs/Diagramas/Proyecto_SW.qea.eapx` para hacerlo.
+- **PENDIENTE:** abrir el XMI exportado en Enterprise Architect (`Publish → Import/Export Package from XMI`) e importar un XMI exportado por EA. No hay EA en este entorno. Pasos y archivo de ejemplo listos en `docs/xmi/VALIDAR_EN_EA.md` y `docs/xmi/ejemplo-completo.xmi` (10 clases con herencia, composición, agregación, relación recursiva y multiplicidades).
 
 ### CU-07 — Backend generado
 Pipeline: `exporters/generators/project_builder.py` → entidades JPA (`json_to_full_orm.py`), repositorios, **capa de API** (`api_layer.py`: DTO + Service + Controller + manejo de errores), protocolo UAP, Postman, Docker.
