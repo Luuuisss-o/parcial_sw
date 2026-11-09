@@ -1,6 +1,6 @@
 # Contexto del proyecto — parcial_sw
 
-> Documento para que una sesión nueva de Claude Code (u otro asistente) entienda el proyecto sin depender del historial de conversaciones previas. Todo lo escrito acá está verificado contra el código real al momento de escribirlo. Donde no se pudo confirmar algo con evidencia, se indica explícitamente en vez de asumir.
+> Documento para que una sesión nueva de Claude Code (u otro asistente) entienda el proyecto sin depender del historial de conversaciones previas. El estado verificado de cada caso de uso del primer parcial (CU-01…CU-09), con sus pruebas, está en `docs/estado-1p.md`. Todo lo escrito acá está verificado contra el código real al momento de escribirlo. Donde no se pudo confirmar algo con evidencia, se indica explícitamente en vez de asumir.
 
 ## 1. Objetivo del proyecto
 
@@ -182,11 +182,12 @@ No hay TypeScript ni interfaces formales — los datos se mapean con funciones h
 ## 7. Mobile
 
 ### Estado real (importante)
-- **Nunca se compiló.** No existe `mobile/android/`, no existe `mobile/ios/`, no hay `pubspec.lock`, no hay carpeta `build/`.
-- `mobile/README.md` documenta explícitamente los pasos pendientes: instalar Java 17 + Android SDK + Flutter, correr `flutter create --platforms=android` para generar la carpeta `android/`, ajustar permisos de micrófono y `minSdk=24`, y recién ahí poder compilar.
-- Todo `mobile/` está sin trackear en git (`git status` lo muestra como untracked completo).
+- **Compilada y probada en un teléfono físico** (Samsung A34, Android 16) el 8/11/2026. `mobile/android/` está versionado (no correr `flutter create`), `minSdk = 30` (lo exige `vosk_flutter_2`).
+- Se compila con `flutter build apk --release --split-per-abi --dart-define=API_BASE_URL=https://uml-equipo.duckdns.org/api` (ver `mobile/README.md`).
+- Arranca en el login del diagramador; después del login, un selector ofrece "Diseñar diagramas" (chat del equipo + IA en el celular) o "Usar un sistema generado" (protocolo UAP).
+- La IA local es Gemma 3 1B ajustado con LoRA (`training/`): el celular lo descarga del servidor (~0,8 GB) y lo verifica por SHA-256; no va empaquetado en el APK.
 
-### Arquitectura (según el código escrito, sin verificar en ejecución)
+### Arquitectura
 14 archivos `.dart` en `mobile/lib/`. Estado global con `ChangeNotifier` (`app_state.dart`), sin un framework de estado más complejo.
 
 ### Pantallas (`mobile/lib/screens/`)
@@ -290,8 +291,7 @@ Confirmado funcionando (probado en esta sesión con Docker real, no solo revisi�
 
 ## 11. Funcionalidades en desarrollo
 
-- **App móvil Flutter**: todo el código está escrito (14 archivos `.dart`), pero nunca se compiló ni se corrió. Falta: instalar Android SDK y generar la carpeta `android/` (`flutter create`), correr `flutter pub get`, y probar en un dispositivo real. La API exacta del método `generate()` del paquete `llamadart` no está confirmada al 100% contra el código real (puede necesitar ajustes al compilar por primera vez, según nota dejada en el propio código).
-- El `docker-compose.yml` de la raíz del proyecto (diagramador) todavía no está commiteado a git (aparece como untracked).
+- Validar el XMI exportado en Enterprise Architect (ver `docs/estado-1p.md`, CU-06).
 
 ## 12. Decisiones importantes (no cambiar sin razón clara)
 
@@ -307,8 +307,6 @@ Confirmado funcionando (probado en esta sesión con Docker real, no solo revisi�
 - **No hay endpoint de registro de usuarios activo** (`sign-up`), pese a que el schema existe. Los usuarios deben crearse por otro medio (seed, acceso directo a la base, o un endpoint no confirmado en este audit).
 - **No hay refresh token implementado**, pese a que `REFRESH_EXPIRE_DAYS` está en la configuración. La sesión expira cuando expira el access token (`ACCESS_EXPIRE_MIN`, default 480 minutos) y el usuario debe volver a loguearse.
 - **Inconsistencia de nombres de campo español/inglés entre endpoints** (ver sección 12) — no es un bug per se, pero es una fuente real de errores si se agrega código nuevo sin verificar el shape exacto de cada endpoint primero.
-- **App móvil sin compilar**: no se puede afirmar que el código Dart funcione hasta que se compile por primera vez. La integración con `llamadart` en particular tiene riesgo de necesitar ajustes.
-- **Mobile no está commiteado a git** — cualquier trabajo ahí corre riesgo de perderse si no se agrega al repo.
 
 ## 14. Reglas para futuras sesiones
 
@@ -322,18 +320,8 @@ Confirmado funcionando (probado en esta sesión con Docker real, no solo revisi�
 
 ## 15. Estado actual
 
-Al momento de escribir este documento:
-- El diagramador (backend + frontend + Postgres) corre en Docker y fue verificado funcionando de punta a punta: login, CRUD de diagramas/clases/relaciones, colaboración en tiempo real, asistente de IA, importar foto, exportar/importar XMI.
-- El generador de backend Spring Boot fue verificado de punta a punta con un caso real (diagrama de 7 clases importado desde una foto): compila con Maven, levanta con Docker, Hibernate crea las tablas, responde CRUD real.
-- Se hizo una limpieza de código muerto en backend, frontend y exporters (archivos completos sin uso y bloques de código comentado), verificando después de cada cambio que backend y frontend siguieran reconstruyendo y respondiendo bien en Docker.
-- La app móvil Flutter tiene todo su código fuente escrito pero nunca se compiló. El usuario instaló Flutter recién en esta sesión (confirmado en el PATH de Windows); todavía falta generar la carpeta `android/` y compilar por primera vez.
-- Working tree con cambios sin commitear (ver lista completa en el reporte de auditoría de esta sesión, o correr `git status`): principalmente los archivos tocados durante la limpieza de código muerto, y todo `mobile/`, que nunca se agregó a git.
+Ver `docs/estado-1p.md` (auditoría del 9/11/2026): CU-01…CU-09 verificados con pruebas ejecutadas; la única validación pendiente es abrir el XMI en Enterprise Architect. Producción: `https://uml-equipo.duckdns.org` (EC2, `docs/DESPLIEGUE.md`).
 
 ## 16. Próximos pasos
 
-En orden lógico sugerido:
-1. Compilar la app móvil por primera vez: generar `mobile/android/` con `flutter create --platforms=android`, correr `flutter pub get`, resolver cualquier error de compilación que surja (especialmente en la integración con `llamadart`, marcada como no confirmada al 100%).
-2. Probar la app móvil en un dispositivo físico real, incluyendo la descarga de los modelos de IA (LLM + Vosk) la primera vez que se abre el asistente.
-3. Confirmar si hace falta un endpoint de registro de usuarios para el examen, o si los usuarios se crean siempre por otro medio (seed/acceso directo a la base).
-4. Decidir si conviene implementar refresh token o si el tiempo de expiración actual (8 horas) es suficiente para el examen.
-5. Commitear a git el `docker-compose.yml` de la raíz y todo `mobile/`, que hoy están sin trackear.
+Ver la sección "Pendientes" de `docs/estado-1p.md`.
