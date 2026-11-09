@@ -34,14 +34,20 @@ ET.register_namespace("uml", UML_NS)
 # resolver nada mas: se referencian por href, no hace falta definirlos).
 _PRIMITIVE_HREF = "http://schema.omg.org/spec/UML/2.1/uml.xml#{name}"
 _TO_UML_PRIMITIVE = {
-    "int": "Integer", "integer": "Integer", "long": "Integer",
-    "float": "Real", "double": "Real", "decimal": "Real",
+    "int": "Integer", "integer": "Integer",
+    "float": "Real",
     "boolean": "Boolean", "bool": "Boolean",
     "string": "String", "text": "String", "uuid": "String", "email": "String",
 }
-# Tipos sin primitivo UML estandar: se declaran como uml:DataType propios
-# dentro del mismo archivo, asi el XMI queda autocontenido.
-_LOCAL_DATATYPES = {"date": "Date", "datetime": "DateTime"}
+# Tipos sin primitivo UML exacto: se declaran como uml:DataType propios
+# dentro del mismo archivo, asi el XMI queda autocontenido. double, decimal
+# y long estaban mapeados a los primitivos Real/Integer y en la ida y vuelta
+# volvian como float/int: el backend generado pasaba de Double/BigDecimal/
+# Long a Float/Integer (perdida de precision). Ver tests/test_xmi_roundtrip.py.
+_LOCAL_DATATYPES = {
+    "date": "Date", "datetime": "DateTime",
+    "double": "Double", "decimal": "Decimal", "long": "Long",
+}
 
 # Vuelta: nombre de primitivo/datatype UML (en minuscula) -> tipo interno.
 # Escrito explicito, no derivado de _TO_UML_PRIMITIVE: ese dict tiene varias
@@ -49,7 +55,10 @@ _LOCAL_DATATYPES = {"date": "Date", "datetime": "DateTime"}
 # Integer), asi que invertirlo automaticamente pierde informacion sobre cual
 # es el nombre "canonico" a usar de vuelta.
 _FROM_UML_PRIMITIVE = {"integer": "int", "real": "float", "boolean": "boolean", "string": "string"}
-_FROM_LOCAL_DATATYPE = {"date": "date", "datetime": "datetime"}
+_FROM_LOCAL_DATATYPE = {
+    "date": "date", "datetime": "datetime",
+    "double": "double", "decimal": "decimal", "long": "long",
+}
 
 _AGGREGATION_BY_TYPE = {
     RelType.COMPOSITION: "composite",
@@ -132,10 +141,16 @@ def build_xmi(diagram) -> bytes:
                     "name": "return",
                     "direction": "return",
                 })
-                ET.SubElement(param_el, "type", {
-                    f"{{{XMI_NS}}}type": "uml:PrimitiveType",
-                    "href": _PRIMITIVE_HREF.format(name=_TO_UML_PRIMITIVE.get(ret, "String")),
-                })
+                if ret in _LOCAL_DATATYPES:
+                    # Mismo tratamiento que los atributos (antes un metodo que
+                    # devolvia date/double se exportaba como String).
+                    used_datatypes.add(ret)
+                    ET.SubElement(param_el, "type", {f"{{{XMI_NS}}}idref": f"DT_{ret}"})
+                else:
+                    ET.SubElement(param_el, "type", {
+                        f"{{{XMI_NS}}}type": "uml:PrimitiveType",
+                        "href": _PRIMITIVE_HREF.format(name=_TO_UML_PRIMITIVE.get(ret, "String")),
+                    })
 
         # Herencia: generalization vive DENTRO del elemento hijo (origen).
         for r in c.outgoing_relations:
