@@ -13,6 +13,7 @@ IA quien decide, comando a comando, que tools llamar.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Optional
 from uuid import UUID
 
@@ -33,12 +34,41 @@ class ToolError(Exception):
 _fire = realtime_events.fire
 
 
-class DiagramToolExecutor:
-    """Ejecuta tools sobre un diagrama concreto, ya validado como propiedad del usuario."""
+# El usuario confirmo explicitamente una eliminacion: "confirmo ..." o, AL
+# COMIENZO, "si" con tilde o seguido de coma ("si, eliminala"). Asi el
+# condicional "si eliminas X, que pasa?" no cuenta como confirmacion.
+CONFIRM_RE = re.compile(
+    r"\bconfirm\w*|^\s*(?:@\w+[\s,]*)?s(?:í[\s,]+|i\s*,\s*)(?:elimin|borr|quit)\w*", re.IGNORECASE
+)
+CONFIRMATION_REQUIRED = "CONFIRMACION REQUERIDA"
 
-    def __init__(self, db: Session, diagram: Diagram):
+
+class DiagramToolExecutor:
+    """Ejecuta tools sobre un diagrama concreto, ya validado como propiedad del usuario.
+
+    `destructive_confirmed=False` (lo usa el asistente cuando el mensaje del
+    usuario no trae una confirmacion explicita): borrar una clase que tiene
+    atributos, metodos o relaciones -- se pierden en cascada -- o hacer mas de
+    una eliminacion en el mismo pedido se rechaza con CONFIRMACION REQUERIDA,
+    y el modelo tiene que pedirle confirmacion al usuario. Es una regla del
+    servidor, no del criterio del modelo."""
+
+    def __init__(self, db: Session, diagram: Diagram, destructive_confirmed: bool = True):
         self.db = db
         self.diagram = diagram
+        self.destructive_confirmed = destructive_confirmed
+        self._destructive_done = 0
+
+    def _guard_destructive(self, what: str, impact: str = "") -> None:
+        if not self.destructive_confirmed and (impact or self._destructive_done >= 1):
+            motivo = (f"eliminar {what} borra tambien {impact}" if impact
+                      else "el pedido incluye varias eliminaciones")
+            raise ToolError(
+                f"{CONFIRMATION_REQUIRED}: no elimine nada ({motivo}). Explicale al usuario "
+                f"que se perderia y pedile que confirme escribiendo, por ejemplo: "
+                f"'@IA confirmo, elimina {what}'."
+            )
+        self._destructive_done += 1
 
     # ---------------------------------------------------------------
     # Resolucion de nombres -> entidades (case-insensitive)
@@ -195,6 +225,15 @@ class DiagramToolExecutor:
 
     def delete_class(self, class_name: str) -> dict:
         c = self._find_class(class_name)
+        n_rel = (
+            self.db.query(Relacion)
+            .filter((Relacion.origen_id == c.id) | (Relacion.destino_id == c.id))
+            .count()
+        )
+        parts = [f"{n} {label}" for n, label in (
+            (len(c.atributos), "atributo(s)"), (len(c.metodos), "metodo(s)"), (n_rel, "relacion(es)"),
+        ) if n]
+        self._guard_destructive(f"la clase '{c.nombre}'", ", ".join(parts))
         class_id = c.id
         self.db.delete(c)
         self.db.commit()
@@ -225,6 +264,7 @@ class DiagramToolExecutor:
     def delete_attribute(self, class_name: str, attribute_name: str) -> dict:
         c = self._find_class(class_name)
         a = self._find_attribute(c, attribute_name)
+        self._guard_destructive(f"el atributo '{a.nombre}' de '{c.nombre}'")
         attr_id = a.id
         self.db.delete(a)
         self.db.commit()
@@ -256,6 +296,7 @@ class DiagramToolExecutor:
     def delete_method(self, class_name: str, method_name: str) -> dict:
         c = self._find_class(class_name)
         m = self._find_method(c, method_name)
+        self._guard_destructive(f"el metodo '{m.nombre}' de '{c.nombre}'")
         method_id = m.id
         self.db.delete(m)
         self.db.commit()
@@ -339,6 +380,7 @@ class DiagramToolExecutor:
             )
 
         r = rels[0]
+        self._guard_destructive(f"la relacion entre '{src.nombre}' y '{dst.nombre}'")
         relation_id = r.id
         self.db.delete(r)
         self.db.commit()
@@ -466,12 +508,20 @@ _RAW_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "create_relation",
-        "description": "Crea una relacion UML entre dos clases existentes.",
+        "description": (
+            "Crea una relacion UML entre dos clases existentes. DIRECCION (importa: "
+            "el editor dibuja el rombo/flecha en el destino y el backend generado "
+            "se arma a partir de ella): INHERITANCE -> from_class = subclase (hija), "
+            "to_class = superclase (padre). AGGREGATION/COMPOSITION -> from_class = "
+            "la PARTE, to_class = el TODO; ej. 'Pedido se compone de DetallePedido' "
+            "-> from_class=DetallePedido, to_class=Pedido. ASSOCIATION/DEPENDENCY: "
+            "en el orden en que el usuario las nombra."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "from_class": {"type": "string", "description": "Clase origen"},
-                "to_class": {"type": "string", "description": "Clase destino"},
+                "from_class": {"type": "string", "description": "Clase origen (hija en herencia, parte en agregacion/composicion)"},
+                "to_class": {"type": "string", "description": "Clase destino (padre en herencia, todo en agregacion/composicion)"},
                 "type": {
                     "type": "string",
                     "enum": ["ASSOCIATION", "AGGREGATION", "COMPOSITION", "INHERITANCE", "DEPENDENCY"],

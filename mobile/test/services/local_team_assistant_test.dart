@@ -105,4 +105,72 @@ void main() {
     expect(parseMultiplicity('*'), (0, null));
     expect(parseMultiplicity('2..5'), (2, 5));
   });
+
+  group('confirmación de eliminaciones (misma regla que el servidor)', () {
+    const diagram = {
+      'clases': [
+        {'nombre': 'Cliente', 'atributos': [{'nombre': 'email', 'tipo': 'String'}], 'metodos': []},
+        {'nombre': 'Temporal', 'atributos': [], 'metodos': []},
+      ],
+      'relaciones': [
+        {'origen': 'Cliente', 'destino': 'Pedido', 'tipo': 'ASSOCIATION'},
+      ],
+    };
+    const borrarCliente = [AssistantAction('delete_class', {'class_name': 'Cliente'})];
+
+    test('borrar una clase con contenido sin confirmar: pregunta y dice qué se pierde', () {
+      final ask = destructiveConfirmationNeeded(borrarCliente, diagram, 'eliminá Cliente', requester: 'Ana');
+      expect(ask, contains('Ana, eliminar la clase Cliente borra también 1 atributo(s), 1 relación(es)'));
+      expect(ask, contains('@IA confirmo'));
+    });
+
+    test('con confirmación explícita se ejecuta', () {
+      expect(destructiveConfirmationNeeded(borrarCliente, diagram, 'confirmo, eliminá Cliente'), isNull);
+      expect(destructiveConfirmationNeeded(borrarCliente, diagram, '@IA sí, borrala'), isNull);
+    });
+
+    test('"si eliminás X, ¿qué pasa?" no cuenta como confirmación', () {
+      expect(destructiveConfirmationNeeded(borrarCliente, diagram, 'si eliminás Cliente, ¿qué pasa?'), isNotNull);
+    });
+
+    test('una clase vacía o un atributo suelto se borran directo', () {
+      expect(destructiveConfirmationNeeded(
+          const [AssistantAction('delete_class', {'class_name': 'Temporal'})], diagram, 'borrá Temporal'), isNull);
+      expect(destructiveConfirmationNeeded(
+          const [AssistantAction('delete_attribute', {'class_name': 'Cliente', 'attribute_name': 'email'})],
+          diagram, 'borrá email'), isNull);
+    });
+
+    test('varias eliminaciones juntas piden confirmación', () {
+      final ask = destructiveConfirmationNeeded(const [
+        AssistantAction('delete_attribute', {'class_name': 'Cliente', 'attribute_name': 'email'}),
+        AssistantAction('delete_class', {'class_name': 'Temporal'}),
+      ], diagram, 'borrá email y Temporal');
+      expect(ask, contains('2 eliminaciones'));
+    });
+
+    test('el asistente del chat no ejecuta y publica la pregunta', () async {
+      final posted = _Posted();
+      final ran = <List<AssistantAction>>[];
+      await LocalTeamAssistant(
+        fetchContext: (_) async => {
+          'mode': 'AUTO', 'requester_name': 'Ana', 'question': 'eliminá Cliente', 'diagram': diagram,
+        },
+        model: (_) async => const AssistantReply('Ana, eliminé Cliente.', borrarCliente),
+        runActions: (a) async {
+          ran.add(a);
+          return const [];
+        },
+        postAnswer: (id, {content, error, actions, aiMode, modelLabel}) async {
+          posted
+            ..content = content
+            ..actions = actions;
+        },
+        modelLabel: () => 'm',
+      ).answer('q');
+      expect(ran, isEmpty);
+      expect(posted.content, contains('No la eliminé todavía'));
+      expect(posted.actions, isEmpty);
+    });
+  });
 }

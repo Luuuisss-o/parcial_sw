@@ -10,7 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../services/diagram_tool_runner.dart';
-import '../services/local_team_assistant.dart' show kMaxActionsPerAnswer;
+import '../services/local_team_assistant.dart' show destructiveConfirmationNeeded, kMaxActionsPerAnswer;
 
 class AssistantScreen extends StatefulWidget {
   final String diagramId;
@@ -141,12 +141,14 @@ class _AssistantScreenState extends State<AssistantScreen> {
       final reply = await app.llm.answerTeamQuestion(ctx);
       var actions = reply.actions;
       if (actions.length > kMaxActionsPerAnswer) actions = actions.sublist(0, kMaxActionsPerAnswer);
+      final ask = destructiveConfirmationNeeded(actions, ctx['diagram'] as Map<String, dynamic>, text, requester: me);
+      if (ask != null) actions = const [];
       final outcomes = actions.isEmpty
           ? const <ActionOutcome>[]
           : await DiagramToolRunner(app.api, widget.diagramId).runAll(actions);
       final failed = outcomes.where((o) => !o.ok).map((o) => '- ${o.message}').toList();
       final done = outcomes.where((o) => o.ok).map((o) => o.message).toList();
-      var resultText = reply.say.trim();
+      var resultText = ask ?? reply.say.trim();
       if (resultText.isEmpty) resultText = done.isNotEmpty ? done.join(' ') : '¿Podés repetirlo con otras palabras?';
       if (failed.isNotEmpty) resultText += '\n\nNo pude aplicar todo:\n${failed.join('\n')}';
 

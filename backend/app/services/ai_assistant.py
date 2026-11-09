@@ -29,7 +29,7 @@ from google import genai  # noqa: F401  (los tests reemplazan genai.Client)
 from app.core.config import settings
 from app.models.uml import Diagram
 from app.services import llm_providers
-from app.services.ai_tools import DiagramToolExecutor, ToolError, TOOLS
+from app.services.ai_tools import CONFIRM_RE, DiagramToolExecutor, ToolError, TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +137,10 @@ ROL 2 - EJECUTOR DE EDICIONES DEL DIAGRAMA
 Cuando te piden un cambio concreto, lo ejecutas llamando a las herramientas.
 1. Ejecuta SIEMPRE lo que el usuario pide, usando las herramientas. Si el \
    pedido nombra los elementos concretos, hacelo sin pedir confirmacion ni \
-   pedir que te lo repitan paso a paso.
+   pedir que te lo repitan paso a paso. UNICA excepcion: si una herramienta \
+   responde CONFIRMACION REQUERIDA (borrar una clase con contenido o varias \
+   cosas a la vez), no reintentes: explica en una linea que se perderia y \
+   pedile que confirme con "@IA confirmo, ...".
 2. Un solo mensaje puede implicar VARIAS herramientas, y esta perfecto \
    encadenarlas. Ejemplos que SI debes ejecutar completos:
    - "crea la clase Usuario y agregale nombre, ci, contrasena y correo" \
@@ -325,7 +328,9 @@ def run_command(db, diagram: Diagram, user_text: str, requester: Requester | Non
 def _run(db, diagram, user_text, requester, history, team_context, mode, solutions_enabled,
          cfg: llm_providers.ProviderConfig) -> AiCommandResult:
     session = llm_providers.open_session(cfg)  # valida la config antes de hacer nada
-    executor = DiagramToolExecutor(db, diagram)
+    # Eliminaciones con impacto (clase con contenido, varias a la vez) solo si
+    # el usuario confirmo explicitamente en este mensaje (ver ai_tools).
+    executor = DiagramToolExecutor(db, diagram, destructive_confirmed=bool(CONFIRM_RE.search(user_text)))
 
     state = json.dumps(executor.snapshot(), ensure_ascii=False)
     sys_prompt = system_prompt(solutions_enabled)

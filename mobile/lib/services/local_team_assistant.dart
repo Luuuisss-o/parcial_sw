@@ -62,6 +62,19 @@ class LocalTeamAssistant {
 
       var actions = mentor ? const <AssistantAction>[] : reply.actions;
       if (actions.length > kMaxActionsPerAnswer) actions = actions.sublist(0, kMaxActionsPerAnswer);
+
+      // Misma regla que el servidor: una eliminación con impacto no se
+      // ejecuta sin confirmación explícita del usuario.
+      final ask = destructiveConfirmationNeeded(
+        actions,
+        (ctx['diagram'] as Map?)?.cast<String, dynamic>() ?? const {},
+        '${ctx['question'] ?? ''}',
+        requester: '${ctx['requester_name'] ?? ''}',
+      );
+      if (ask != null) {
+        await postAnswer(questionId, content: ask, actions: const [], aiMode: 'AUTO', modelLabel: modelLabel());
+        return;
+      }
       final outcomes = actions.isEmpty ? const <ActionOutcome>[] : await runActions(actions);
 
       final failed = outcomes.where((o) => !o.ok).toList();
@@ -89,6 +102,53 @@ class LocalTeamAssistant {
       await postAnswer(questionId, error: 'El modelo local del celular falló: $e', modelLabel: modelLabel());
     }
   }
+}
+
+/// El usuario confirmó una eliminación: "confirmo ..." o, AL COMIENZO, "sí"
+/// con tilde o "si," con coma ("sí, eliminala"). Así el condicional "si
+/// eliminás X, ¿qué pasa?" no cuenta. Misma expresión que el backend
+/// (ai_tools.CONFIRM_RE).
+final RegExp kConfirmRe = RegExp(r'\bconfirm\w*|^\s*(?:@\w+[\s,]*)?s(?:í[\s,]+|i\s*,\s*)(?:elimin|borr|quit)\w*',
+    caseSensitive: false);
+
+/// Pregunta de confirmación si `actions` incluye una eliminación con impacto
+/// y `question` no la confirma; null si se puede ejecutar. Misma regla que el
+/// servidor (ai_tools.DiagramToolExecutor): borrar una clase con atributos,
+/// métodos o relaciones (se pierden en cascada) o hacer varias eliminaciones
+/// juntas requiere confirmación; un borrado puntual es directo.
+String? destructiveConfirmationNeeded(
+  List<AssistantAction> actions,
+  Map<String, dynamic> diagram,
+  String question, {
+  String requester = '',
+}) {
+  if (kConfirmRe.hasMatch(question)) return null;
+  final deletes = actions.where((a) => a.tool.startsWith('delete_')).toList();
+  if (deletes.isEmpty) return null;
+  final to = requester.isEmpty ? '' : '$requester, ';
+  const how = 'Si estás seguro, respondé "@IA confirmo, ..." y lo hago.';
+  if (deletes.length > 1) {
+    return '${to}tu pedido incluye ${deletes.length} eliminaciones y no hice ninguna todavía. $how';
+  }
+  final d = deletes.first;
+  if (d.tool != 'delete_class') return null;
+  final name = '${d.args['class_name'] ?? ''}'.toLowerCase();
+  final cls = (diagram['clases'] as List? ?? const [])
+      .cast<Map>()
+      .where((c) => '${c['nombre']}'.toLowerCase() == name)
+      .firstOrNull;
+  if (cls == null) return null; // no existe: el ejecutor informará el error
+  final rels = (diagram['relaciones'] as List? ?? const [])
+      .cast<Map>()
+      .where((r) => '${r['origen']}'.toLowerCase() == name || '${r['destino']}'.toLowerCase() == name)
+      .length;
+  final parts = [
+    if ((cls['atributos'] as List? ?? const []).isNotEmpty) '${(cls['atributos'] as List).length} atributo(s)',
+    if ((cls['metodos'] as List? ?? const []).isNotEmpty) '${(cls['metodos'] as List).length} método(s)',
+    if (rels > 0) '$rels relación(es)',
+  ];
+  if (parts.isEmpty) return null;
+  return '${to}eliminar la clase ${cls['nombre']} borra también ${parts.join(', ')}. No la eliminé todavía. $how';
 }
 
 /// Misma detección de "@IA" que el backend (chat_service._AI_MENTION_RE).

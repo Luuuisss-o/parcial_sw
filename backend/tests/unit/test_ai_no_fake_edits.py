@@ -14,7 +14,7 @@ from app.services.llm_providers import ToolCall, Turn
 
 
 class FakeExecutor:
-    def __init__(self, db, diagram):
+    def __init__(self, db, diagram, **kw):
         self.created = []
 
     def snapshot(self):
