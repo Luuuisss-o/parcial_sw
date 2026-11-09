@@ -104,6 +104,8 @@ export default function useRelations(diagram) {
     // cleanup, si no cada re-ejecución del efecto acumula listeners duplicados
     // y cada relación entrante se aplicaría varias veces.
     const offs = [
+      // Tras reconectar: recargar lo que cambió mientras no había conexión.
+      onEvent("reconnected", () => loadRelations()),
       onEvent("relation.created", (rel) => {
         if (rel.diagram_id === diagram.id) {
           setRelations((prev) =>

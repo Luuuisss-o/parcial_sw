@@ -110,6 +110,10 @@ async def websocket_endpoint(websocket: WebSocket, diagram_id: str):
       {"action": "cursor", "x": <float>, "y": <float>, "label": "<opcional>"}
       {"action": "cursor_left"}   (al salir del lienzo, para borrar el cursor en el resto sin esperar el timeout)
 
+    Keepalive: {"action": "ping"} -> {"event": "pong"} (solo a quien lo mando).
+    nginx corta el WebSocket tras 100 s sin trafico; una pestaña quieta (sin
+    mover el mouse) dejaba de recibir cambios sin enterarse.
+
     `x`/`y` viajan en coordenadas del "mundo" del diagrama (la grilla, no
     pixeles de pantalla): cada participante tiene su propio pan/zoom, asi
     que un pixel de pantalla no significa lo mismo para dos personas.
@@ -168,6 +172,10 @@ async def websocket_endpoint(websocket: WebSocket, diagram_id: str):
                         "label": msg.get("label") or None,
                     },
                 }, exclude=websocket)
+                continue
+
+            if action == "ping":
+                await websocket.send_json({"event": "pong", "data": {}})
                 continue
 
             if action == "cursor_left":

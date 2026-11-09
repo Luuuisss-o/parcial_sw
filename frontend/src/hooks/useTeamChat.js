@@ -64,6 +64,16 @@ export default function useTeamChat(diagramId, { myEmail, isOpen }) {
     if (!diagramId) return;
     setPresence(getPresence());
     const offs = [
+      // Tras reconectar: traer los mensajes que llegaron mientras no había
+      // conexión (mergeMessages descarta los repetidos por id).
+      onEvent("reconnected", () => {
+        listChat(diagramId, { limit: PAGE })
+          .then((data) => {
+            data.items.forEach((m) => seenIds.current.add(m.id));
+            setMessages((prev) => mergeMessages(prev, data.items));
+          })
+          .catch(() => {});
+      }),
       onEvent("chat.message", (msg) => {
         if (!msg || msg.diagram_id !== diagramId || seenIds.current.has(msg.id)) return;
         seenIds.current.add(msg.id);

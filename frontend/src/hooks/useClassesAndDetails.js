@@ -76,7 +76,10 @@ export default function useClassesAndDetails(diagram) {
   };
 
   // ====== CARGA DE CLASES ======
-  async function loadClasses() {
+  // refreshDetails: tras una reconexión del WebSocket hay que volver a pedir
+  // atributos y métodos de TODAS las clases (pudieron cambiar mientras
+  // estábamos desconectados), no solo los de las clases nuevas.
+  async function loadClasses({ refreshDetails = false } = {}) {
     try {
       const items = await listClasses(diagram?.id);
       setClasses(items || []);
@@ -84,7 +87,7 @@ export default function useClassesAndDetails(diagram) {
 
       await Promise.all(
         (items || []).map((c) =>
-          detailsByClass[c.id] ? Promise.resolve() : fetchDetails(c.id)
+          detailsByClass[c.id] && !refreshDetails ? Promise.resolve() : fetchDetails(c.id)
         )
       );
     } catch {
@@ -113,6 +116,8 @@ export default function useClassesAndDetails(diagram) {
       // entrante se aplicaria varias veces al estado.
       const offs = [];
       const onEvent = (event, cb) => offs.push(subscribe(event, cb));
+
+      onEvent("reconnected", () => loadClasses({ refreshDetails: true }));
 
       onEvent("class.created", (c) => {
         // El que creó la clase también recibe su propio broadcast, así que

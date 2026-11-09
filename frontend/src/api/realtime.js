@@ -19,6 +19,15 @@ const listeners = new Map(); // event -> Set<callback>
 // de ese mensaje, así que se guarda para poder leerlo en cualquier momento.
 let lastPresence = [];
 
+// Keepalive y reconexión. nginx corta el WebSocket tras 100 s sin tráfico:
+// una pestaña quieta (sin mover el mouse) dejaba de recibir cambios sin
+// enterarse, y si la conexión se caía no se volvía a abrir nunca.
+const PING_MS = 25000;
+let pingTimer = null;
+let retryTimer = null;
+let retryAttempt = 0;
+let reconnecting = false;
+
 function emit(event, data) {
   const subs = listeners.get(event);
   if (!subs) return;
@@ -41,13 +50,25 @@ export function connect(diagramId) {
   currentDiagramId = diagramId;
   myConnId = null;
   lastPresence = [];
+  retryAttempt = 0;
+  reconnecting = false;
+  openSocket();
+}
+
+function openSocket() {
+  const diagramId = currentDiagramId;
+  if (!diagramId) return;
   // El WebSocket nativo del navegador no permite mandar headers custom
   // (no hay forma de poner Authorization ahí), así que el token viaja por
   // query string. El backend lo valida antes de aceptar la conexión.
   const token = getToken();
   socket = new WebSocket(`${WS_URL}/diagrams/${diagramId}/ws?token=${encodeURIComponent(token || "")}`);
 
-  socket.onopen = () => console.log("[realtime] conectado al diagrama", diagramId);
+  socket.onopen = () => {
+    console.log("[realtime] conectado al diagrama", diagramId);
+    clearInterval(pingTimer);
+    pingTimer = setInterval(() => send({ action: "ping" }), PING_MS);
+  };
 
   socket.onmessage = (event) => {
     let msg;
@@ -62,17 +83,52 @@ export function connect(diagramId) {
     // nada a los listeners, así isLockedByOther ya tiene con qué comparar.
     if (msg.event === "connected") {
       myConnId = msg.data?.conn_id ?? null;
+      retryAttempt = 0;
+      // Lo que pasó mientras estuvimos desconectados no llegó: los hooks
+      // escuchan "reconnected" para recargar clases, relaciones y chat.
+      if (reconnecting) {
+        reconnecting = false;
+        emit("reconnected", {});
+      }
       return;
     }
+    if (msg.event === "pong") return;
     if (msg.event === "presence") lastPresence = Array.isArray(msg.data) ? msg.data : [];
     emit(msg.event, msg.data);
   };
 
-  socket.onclose = () => console.log("[realtime] conexión cerrada");
+  socket.onclose = () => {
+    console.log("[realtime] conexión cerrada");
+    scheduleReconnect();
+  };
   socket.onerror = (e) => console.error("[realtime] error de conexión:", e);
 }
 
+/** Reintenta con espera creciente (1, 2, 4... hasta 30 s) mientras el
+ *  diagrama siga abierto (disconnect() pone currentDiagramId en null). */
+function scheduleReconnect() {
+  clearInterval(pingTimer);
+  pingTimer = null;
+  if (!currentDiagramId || retryTimer) return;
+  reconnecting = true;
+  const delay = Math.min(30000, 1000 * 2 ** retryAttempt);
+  retryAttempt = Math.min(retryAttempt + 1, 5);
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    if (!currentDiagramId) return;
+    if (socket) {
+      socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
+      socket = null;
+    }
+    openSocket();
+  }, delay);
+}
+
 function closeSocket() {
+  clearInterval(pingTimer);
+  pingTimer = null;
+  clearTimeout(retryTimer);
+  retryTimer = null;
   if (!socket) return;
   // Un mensaje que ya estaba en vuelo para ESTA conexión puede llegar
   // después de decidir reemplazarla (típico con React StrictMode en
