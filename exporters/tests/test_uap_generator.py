@@ -138,7 +138,7 @@ def test_manifest_lists_all_entities_with_aliases(generated_dir):
 def test_generate_uap_reloads_json_independently(diagram_tienda_path, tmp_path):
     """generate_uap no debe depender de que otro generador haya cargado y
     mutado el mismo dict antes -- tiene que poder correr solo, cargando su
-    propio JSON, igual que el resto del pipeline (ver model_to_dto.py)."""
+    propio JSON, igual que el resto del pipeline (ver api_layer.py)."""
     out_dir = tmp_path / "solo"
     generate_uap(diagram_tienda_path, str(out_dir), templates_dir="exporters/templates")
     assert (out_dir / "UapManifestController.java").exists()

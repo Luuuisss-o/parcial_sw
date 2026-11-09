@@ -1,45 +1,52 @@
 package com.test.controllers;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+
 import java.util.List;
-import java.util.Optional;
 
-import com.test.models.{{ class_name }};
-import com.test.services.{{ class_name }}Service;
+import com.test.dtos.{{ e.class_name }}Dto;
+import com.test.services.{{ e.class_name }}Service;
 
+/**
+ * CRUD de {{ e.class_name }}. Errores (ver exceptions/ApiExceptionHandler):
+ * 404 si el id no existe, 400 si falta un campo obligatorio o se referencia
+ * un id inexistente, 409 si borrarlo violaria una relacion.
+ */
 @RestController
-@RequestMapping("/api/{{ class_name | lower }}s")
-public class {{ class_name }}Controller {
+@RequestMapping("/api/{{ e.path }}")
+public class {{ e.class_name }}Controller {
 
-    private final {{ class_name }}Service service;
+    private final {{ e.class_name }}Service service;
 
-    public {{ class_name }}Controller({{ class_name }}Service service) {
+    public {{ e.class_name }}Controller({{ e.class_name }}Service service) {
         this.service = service;
     }
 
     @GetMapping
-    public List<{{ class_name }}> getAll() {
-        return service.findAll();
+    public List<{{ e.class_name }}Dto> getAll() {
+        return service.listAll();
     }
 
     @GetMapping("/{id}")
-    public Optional<{{ class_name }}> getById(@PathVariable Long id) {
-        return service.findById(id);
+    public {{ e.class_name }}Dto getById(@PathVariable Long id) {
+        return service.get(id);
     }
 
     @PostMapping
-    public {{ class_name }} create(@RequestBody {{ class_name }} entity) {
-        return service.save(entity);
+    @ResponseStatus(HttpStatus.CREATED)
+    public {{ e.class_name }}Dto create(@RequestBody {{ e.class_name }}Dto dto) {
+        return service.create(dto);
     }
 
     @PutMapping("/{id}")
-    public {{ class_name }} update(@PathVariable Long id, @RequestBody {{ class_name }} entity) {
-        entity.setId(id);
-        return service.save(entity);
+    public {{ e.class_name }}Dto update(@PathVariable Long id, @RequestBody {{ e.class_name }}Dto dto) {
+        return service.update(id, dto);
     }
 
     @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id) {
-        service.delete(id);
+        service.remove(id);
     }
 }

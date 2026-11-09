@@ -4,15 +4,47 @@ Convierte un diagrama UML (JSON) a entidades Java con JPA: atributos y
 relaciones (usando json_to_relations) en un solo generador.
 """
 
-import os, json
+import copy, os, json, re
 from exporters.generators.json_to_relations import build_relations, to_camel
 from exporters.generators.type_mapping import map_type
+
+_DECL_RE = re.compile(r"^\s*private (List<(\w+)>|(\w+)) (\w+);$")
+
+
+def _relation_fields(rel_lines: list[str]) -> list[dict]:
+    """Campos de relacion declarados en `rel_lines` (la seccion de relaciones
+    de la entidad): nombre, clase destino, si es lista y si es el lado DUENO
+    (el que persiste la FK / la tabla intermedia; el lado `mappedBy` es solo
+    lectura para JPA)."""
+    fields, annotations = [], []
+    for line in rel_lines:
+        m = _DECL_RE.match(line)
+        if not m:
+            if line.strip():
+                annotations.append(line)
+            continue
+        fields.append({
+            "name": m.group(4),
+            "target": m.group(2) or m.group(3),
+            "is_list": m.group(2) is not None,
+            "owner": not any("mappedBy" in a for a in annotations),
+            "java_type": m.group(1),
+            "cap": m.group(4)[0].upper() + m.group(4)[1:],
+        })
+        annotations = []
+    return fields
 
 
 # ========================
 # Generador de entidad con relaciones
 # ========================
 def generate_entity(class_def: dict, relations_map: dict):
+    return build_entity(class_def, relations_map)[0]
+
+
+def build_entity(class_def: dict, relations_map: dict):
+    """Devuelve (codigo Java de la entidad, campos de relacion)."""
+    class_def = copy.deepcopy(class_def)  # se le inserta "id": no tocar el original
     class_name = class_def["name"]
     attributes = class_def.get("attributes", [])
 
@@ -33,6 +65,7 @@ def generate_entity(class_def: dict, relations_map: dict):
     lines.append("package com.test.models;")
     lines.append("")
     lines.append("import jakarta.persistence.*;")
+    lines.append("import com.fasterxml.jackson.annotation.JsonIgnore;")
     lines.append("import java.time.*;")
     lines.append("import java.util.*;")
     lines.append("")
@@ -74,6 +107,7 @@ def generate_entity(class_def: dict, relations_map: dict):
     # ========================
     # Relaciones JPA
     # ========================
+    rel_start = len(lines)
     if class_name in relations_map:
         # 👇 Procesar primero el lado dueño (joinTable), luego mappedBy
         for target, rel in sorted(
@@ -178,7 +212,13 @@ def generate_entity(class_def: dict, relations_map: dict):
                 role_name = rel.get("label") or to_camel(target) + "s"
                 mapped_by = rel.get("mappedBy") or to_camel(class_name)
 
-                if "(" in rel['annotation']:
+                if "mappedBy" in rel['annotation']:
+                    # La relacion dibujada "muchos -> uno" ya trae su mappedBy
+                    # (json_to_relations); agregarle otro producia
+                    # @OneToMany(mappedBy = "x", mappedBy = "x") y el proyecto
+                    # generado no compilaba.
+                    lines.append(f"    {rel['annotation']}")
+                elif "(" in rel['annotation']:
                     base = rel['annotation'].rstrip(")")
                     lines.append(f"    {base}, mappedBy = \"{mapped_by}\")")
                 else:
@@ -228,9 +268,26 @@ def generate_entity(class_def: dict, relations_map: dict):
 
             lines.append("")
 
+    rel_fields = _relation_fields(lines[rel_start:])
+
     # ========================
     # Getters y Setters
     # ========================
+    # Relaciones: antes no tenian getters/setters, asi que no se podian leer
+    # ni asignar (Pedido.cliente quedaba siempre en null). @JsonIgnore: la API
+    # REST las expone como ids en el DTO; serializar la entidad con sus
+    # relaciones bidireccionales entraria en recursion infinita.
+    for rf in rel_fields:
+        lines.append("    @JsonIgnore")
+        lines.append(f"    public {rf['java_type']} get{rf['cap']}() " + "{")
+        lines.append(f"        return {rf['name']};")
+        lines.append("    }")
+        lines.append("")
+        lines.append(f"    public void set{rf['cap']}({rf['java_type']} {rf['name']}) " + "{")
+        lines.append(f"        this.{rf['name']} = {rf['name']};")
+        lines.append("    }")
+        lines.append("")
+
     for attr in attributes:
         attr_name = to_camel(attr["name"])
         if attr["name"].lower() == "id":
@@ -250,7 +307,7 @@ def generate_entity(class_def: dict, relations_map: dict):
         lines.append("")
 
     lines.append("}")
-    return "\n".join(lines)
+    return "\n".join(lines), rel_fields
 
 
 # ========================

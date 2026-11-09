@@ -39,12 +39,24 @@ public class UapChangeLog {
     @Column(name = "changed_at", nullable = false)
     private OffsetDateTime changedAt;
 
+    // Id que el movil le pone a una operacion encolada offline: si la
+    // reenvia (no supo si el primer intento llego), el dispatcher lo
+    // encuentra aca y devuelve el registro ya creado en vez de duplicarlo.
+    // Unico: ni dos reintentos simultaneos pueden crear dos filas.
+    @Column(name = "client_record_id", unique = true)
+    private String clientRecordId;
+
     public UapChangeLog() {}
 
     public UapChangeLog(String entityKey, Long serverId, String op) {
+        this(entityKey, serverId, op, null);
+    }
+
+    public UapChangeLog(String entityKey, Long serverId, String op, String clientRecordId) {
         this.entityKey = entityKey;
         this.serverId = serverId;
         this.op = op;
+        this.clientRecordId = clientRecordId;
         this.changedAt = OffsetDateTime.now();
     }
 
@@ -53,4 +65,5 @@ public class UapChangeLog {
     public Long getServerId() { return serverId; }
     public String getOp() { return op; }
     public OffsetDateTime getChangedAt() { return changedAt; }
+    public String getClientRecordId() { return clientRecordId; }
 }

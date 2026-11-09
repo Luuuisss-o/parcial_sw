@@ -1,28 +1,26 @@
 package com.test.uap;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.boot.autoconfigure.jackson.Jackson2ObjectMapperBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
 
 import java.util.TimeZone;
 
 /**
- * Fuerza America/La_Paz en el ObjectMapper de Jackson, ademas de lo que ya
- * se configura en application.properties (spring.jackson.time-zone). Se
- * duplica a proposito: application.properties cubre el caso comun, pero si
- * algun @Bean propio del proyecto llegara a construir su propio
- * ObjectMapper sin pasar por la autoconfiguracion de Spring Boot, este
- * @Primary sigue garantizando la zona horaria correcta.
+ * Fuerza America/La_Paz en Jackson, ademas de spring.jackson.time-zone en
+ * application.properties.
+ *
+ * Es un *customizer* del ObjectMapper que arma Spring Boot, no un
+ * ObjectMapper propio: antes se definia un `new ObjectMapper()` @Primary,
+ * que reemplazaba al de Spring y perdia sus modulos (fechas java.time,
+ * Optional). Resultado: crear algo con un campo LocalDate daba 500 y
+ * GET /{id} devolvia {"present": true} en vez del registro.
  */
 @Configuration
 public class JacksonTimeZoneConfig {
 
     @Bean
-    @Primary
-    public ObjectMapper objectMapper() {
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.setTimeZone(TimeZone.getTimeZone("America/La_Paz"));
-        return mapper;
+    public Jackson2ObjectMapperBuilderCustomizer laPazTimeZone() {
+        return builder -> builder.timeZone(TimeZone.getTimeZone("America/La_Paz"));
     }
 }

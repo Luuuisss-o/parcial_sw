@@ -1,25 +1,8 @@
 
 # postman_generator.py
-import os, json, random
-from datetime import datetime, timedelta
+import os, json
 from exporters.generators.json_to_relations import build_relations, to_camel
-
-# 🔹 Generar valores de ejemplo según tipo
-def example_for(attr_type: str):
-    t = attr_type.lower()
-
-    if t in ("int", "integer", "long"):
-        return random.randint(1, 100)
-    if t in ("float", "double"):
-        return round(random.uniform(1, 100), 2)
-    if t == "boolean":
-        return random.choice([True, False])
-    if t == "date":
-        return (datetime.today() + timedelta(days=random.randint(0, 30))).strftime("%Y-%m-%d")
-    if t == "datetime":
-        return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    # default string
-    return "Texto de ejemplo"
+from exporters.generators.api_layer import build_api_models
 
 # 🔹 Construir URL en formato Postman (raw, protocol, host, port, path)
 def build_url(url_raw: str):
@@ -35,9 +18,25 @@ def build_url(url_raw: str):
         "path": path
     }
 
+def example_for_java(java_type: str):
+    """Valor de ejemplo determinista por tipo Java (mismo diagrama -> misma
+    coleccion, sin numeros al azar)."""
+    return {
+        "Integer": 10,
+        "Long": 10,
+        "Float": 9.5,
+        "Double": 99.9,
+        "java.math.BigDecimal": 99.9,
+        "Boolean": True,
+        "LocalDate": "2026-01-15",
+        "LocalDateTime": "2026-01-15T10:30:00",
+    }.get(java_type, "Texto de ejemplo")
+
+
 def generate_postman(json_path, output_dir):
     with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
+    api_models = {m["class_name"]: m for m in build_api_models(json_path)}
 
     diagram = data["diagram"]
     relations_map = build_relations(json_path)
@@ -67,22 +66,14 @@ def generate_postman(json_path, output_dir):
         url_base = f"http://localhost:8090/api/{class_name.lower()}s"
         attributes = c.get("attributes", [])
 
-        # 🔹 Construir body inicial
-        body = {}
-        for attr in attributes:
-            name = to_camel(attr["name"])
-            if name.lower() == "id":
-                continue
-            body[name] = example_for(attr["type"])
-
-        # 🔹 Relaciones
-        if class_name in relations_map:
-            for target, rel in relations_map[class_name].items():
-                rel_type = rel["type"]
-                if rel_type in ("ManyToOne", "OneToOne", "Dependency", "Aggregation", "Composition"):
-                    body[to_camel(target)] = {"id": 1}
-                elif rel_type in ("OneToMany", "ManyToMany"):
-                    body[to_camel(target) + "s"] = [{"id": 1}, {"id": 2}]
+        # 🔹 Body de ejemplo = el DTO real de la API (ver api_layer.py):
+        # atributos (incluidos los heredados) y relaciones escribibles como
+        # ids. Antes usaba nombres que no coincidian con la entidad
+        # ("productos" vs "producto") y objetos anidados que se ignoraban.
+        model = api_models[class_name]
+        body = {a["name"]: example_for_java(a["type"]) for a in model["attrs"]}
+        for r in model["owner_rels"]:
+            body[r["dto_field"]] = [1] if r["is_list"] else 1
 
         # 🔹 CRUD con build_url
         requests = [

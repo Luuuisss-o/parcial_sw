@@ -1,35 +1,144 @@
-// Template: service.java.j2
 package com.test.services;
 
 import org.springframework.stereotype.Service;
-import java.util.List;
-import java.util.Optional;
+import org.springframework.transaction.annotation.Transactional;
 
-import com.test.models.{{ class_name }};
-import com.test.repositories.{{ class_name }}Repository;
+import java.util.*;
+
+import com.test.dtos.{{ e.class_name }}Dto;
+import com.test.exceptions.BadRequestException;
+import com.test.exceptions.NotFoundException;
+import com.test.models.{{ e.class_name }};
+{% for t in e.targets %}
+import com.test.models.{{ t.class_name }};
+{% endfor %}
+import com.test.repositories.{{ e.class_name }}Repository;
+{% for t in e.targets %}
+import com.test.repositories.{{ t.class_name }}Repository;
+{% endfor %}
 
 @Service
-public class {{ class_name }}Service {
+public class {{ e.class_name }}Service {
 
-    private final {{ class_name }}Repository repository;
+    private final {{ e.class_name }}Repository repository;
+{% for t in e.targets %}
+    private final {{ t.class_name }}Repository {{ t.var }};
+{% endfor %}
 
-    public {{ class_name }}Service({{ class_name }}Repository repository) {
+    public {{ e.class_name }}Service({{ e.class_name }}Repository repository{% for t in e.targets %}, {{ t.class_name }}Repository {{ t.var }}{% endfor %}) {
         this.repository = repository;
+{% for t in e.targets %}
+        this.{{ t.var }} = {{ t.var }};
+{% endfor %}
     }
 
-    public List<{{ class_name }}> findAll() {
+    // ------------------------------------------------------------------
+    // Operaciones sobre la entidad (las usa la capa UAP del movil).
+    // ------------------------------------------------------------------
+    public List<{{ e.class_name }}> findAll() {
         return repository.findAll();
     }
 
-    public Optional<{{ class_name }}> findById(Long id) {
+    public Optional<{{ e.class_name }}> findById(Long id) {
         return repository.findById(id);
     }
 
-    public {{ class_name }} save({{ class_name }} entity) {
+    public {{ e.class_name }} save({{ e.class_name }} entity) {
         return repository.save(entity);
     }
 
     public void delete(Long id) {
         repository.deleteById(id);
+    }
+
+    // ------------------------------------------------------------------
+    // API REST (/api/{{ e.path }}): entra y sale el DTO.
+    // ------------------------------------------------------------------
+    @Transactional(readOnly = true)
+    public List<{{ e.class_name }}Dto> listAll() {
+        return repository.findAll().stream().map(this::toDto).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public {{ e.class_name }}Dto get(Long id) {
+        return toDto(require(id));
+    }
+
+    @Transactional
+    public {{ e.class_name }}Dto create({{ e.class_name }}Dto dto) {
+        {{ e.class_name }} entity = new {{ e.class_name }}();
+        apply(dto, entity);
+        return toDto(repository.save(entity));
+    }
+
+    @Transactional
+    public {{ e.class_name }}Dto update(Long id, {{ e.class_name }}Dto dto) {
+        {{ e.class_name }} entity = require(id);
+        apply(dto, entity);
+        return toDto(repository.save(entity));
+    }
+
+    @Transactional
+    public void remove(Long id) {
+        if (!repository.existsById(id)) {
+            throw new NotFoundException("No existe {{ e.class_name }} con id " + id);
+        }
+        repository.deleteById(id);
+        repository.flush(); // si una FK lo impide, que falle aca (409) y no al confirmar
+    }
+
+    private {{ e.class_name }} require(Long id) {
+        return repository.findById(id)
+                .orElseThrow(() -> new NotFoundException("No existe {{ e.class_name }} con id " + id));
+    }
+
+    private void apply({{ e.class_name }}Dto dto, {{ e.class_name }} entity) {
+        if (dto == null) throw new BadRequestException("Falta el cuerpo de la peticion");
+{% for a in e.required_attrs %}
+        if (dto.get{{ a.cap }}() == null) throw new BadRequestException("El campo '{{ a.name }}' es obligatorio");
+{% endfor %}
+{% for a in e.attrs %}
+        entity.set{{ a.cap }}(dto.get{{ a.cap }}());
+{% endfor %}
+{% for r in e.owner_rels %}
+{% if r.is_list %}
+        entity.set{{ r.cap }}(findAll{{ r.target }}(dto.get{{ r.dto_cap }}(), "{{ r.dto_field }}"));
+{% else %}
+        entity.set{{ r.cap }}(dto.get{{ r.dto_cap }}() == null ? null
+                : {{ r.repo_var }}.findById(dto.get{{ r.dto_cap }}())
+                    .orElseThrow(() -> new BadRequestException("{{ r.dto_field }}: no existe {{ r.target }} con id " + dto.get{{ r.dto_cap }}())));
+{% endif %}
+{% endfor %}
+    }
+{% for t in e.list_targets %}
+
+    private List<{{ t.class_name }}> findAll{{ t.class_name }}(List<Long> ids, String field) {
+        if (ids == null || ids.isEmpty()) return new ArrayList<>();
+        List<{{ t.class_name }}> found = new ArrayList<>({{ t.repo_var }}.findAllById(ids));
+        Set<Long> distinct = new HashSet<>(ids);
+        if (found.size() != distinct.size()) {
+            Set<Long> missing = new TreeSet<>(distinct);
+            found.forEach(x -> missing.remove(x.getId()));
+            throw new BadRequestException(field + ": no existe {{ t.class_name }} con id " + missing);
+        }
+        return found;
+    }
+{% endfor %}
+
+    private {{ e.class_name }}Dto toDto({{ e.class_name }} entity) {
+        {{ e.class_name }}Dto dto = new {{ e.class_name }}Dto();
+        dto.setId(entity.getId());
+{% for a in e.attrs %}
+        dto.set{{ a.cap }}(entity.get{{ a.cap }}());
+{% endfor %}
+{% for r in e.rels %}
+{% if r.is_list %}
+        dto.set{{ r.dto_cap }}(entity.get{{ r.cap }}() == null ? new ArrayList<>()
+                : entity.get{{ r.cap }}().stream().map(x -> x.getId()).toList());
+{% else %}
+        dto.set{{ r.dto_cap }}(entity.get{{ r.cap }}() == null ? null : entity.get{{ r.cap }}().getId());
+{% endif %}
+{% endfor %}
+        return dto;
     }
 }

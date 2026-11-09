@@ -1,0 +1,8 @@
+package com.test.exceptions;
+
+/** Datos invalidos (campo obligatorio vacio, id referenciado inexistente): 400. */
+public class BadRequestException extends RuntimeException {
+    public BadRequestException(String message) {
+        super(message);
+    }
+}
