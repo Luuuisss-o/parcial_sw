@@ -23,6 +23,10 @@ class ApiClient {
   final AuthService auth;
   ApiClient(this.auth);
 
+  /// Se llama cuando el backend rechaza el token (401: venció o es inválido),
+  /// igual que la web (frontend/src/api/client.js): se cierra la sesión.
+  void Function()? onUnauthorized;
+
   Uri _u(String path, [Map<String, dynamic>? query]) =>
       Uri.parse('${AppConfig.apiBaseUrl}$path').replace(
         queryParameters: query?.map((k, v) => MapEntry(k, '$v')),
@@ -37,6 +41,10 @@ class ApiClient {
     if (resp.statusCode >= 200 && resp.statusCode < 300) {
       if (resp.body.isEmpty) return null;
       return jsonDecode(resp.body);
+    }
+    if (resp.statusCode == 401 && auth.token != null) {
+      onUnauthorized?.call();
+      throw ApiException(401, 'Tu sesión venció. Iniciá sesión de nuevo.');
     }
     String detail = 'Error del servidor (${resp.statusCode})';
     try {

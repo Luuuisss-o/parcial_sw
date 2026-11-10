@@ -25,6 +25,7 @@ class UmlCollabApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Asistente UAP',
+      navigatorKey: rootNavigatorKey,
       theme: ThemeData(colorSchemeSeed: const Color(0xFF4F7CFF), useMaterial3: true),
       home: const _Bootstrapper(),
     );

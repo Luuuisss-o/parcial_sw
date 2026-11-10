@@ -14,6 +14,10 @@ class AuthService {
   String? _token;
   String? _email;
 
+  /// true cuando la sesión se cerró sola porque el backend rechazó el token;
+  /// el login lo usa para avisar por qué se pide la contraseña otra vez.
+  bool sessionExpired = false;
+
   String? get token => _token;
   String? get email => _email;
   bool get isAuthenticated => _token != null && _token!.isNotEmpty;
@@ -37,6 +41,7 @@ class AuthService {
     final data = jsonDecode(resp.body) as Map<String, dynamic>;
     _token = data['access_token'] as String;
     _email = email;
+    sessionExpired = false;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_tokenKey, _token!);

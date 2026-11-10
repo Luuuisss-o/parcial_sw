@@ -18,6 +18,14 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    if (context.read<AppState>().auth.sessionExpired) {
+      _error = 'Tu sesión venció. Iniciá sesión de nuevo.';
+    }
+  }
+
+  @override
   void dispose() {
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
