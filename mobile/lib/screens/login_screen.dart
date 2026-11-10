@@ -3,8 +3,10 @@
 // Login con la paleta "bosque y ámbar" (la misma del login web): encabezado
 // verde petróleo con cuadrícula tenue y formulario en tarjeta. Sin degradés.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../app_state.dart';
+import 'brand.dart';
 import 'mode_selector_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -57,43 +59,47 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _LoginColors.cream,
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const _BrandHeader(),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 420),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Text(
-                        '¡Hola de nuevo!',
-                        style: TextStyle(
-                          fontSize: 26,
-                          fontWeight: FontWeight.w800,
-                          color: _LoginColors.ink,
-                          letterSpacing: -0.3,
+    // Encabezado oscuro: íconos de la barra de estado en claro.
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: BrandColors.cream,
+        body: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _BrandHeader(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Text(
+                          '¡Hola de nuevo!',
+                          style: TextStyle(
+                            fontSize: 26,
+                            fontWeight: FontWeight.w800,
+                            color: BrandColors.ink,
+                            letterSpacing: -0.3,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Iniciá sesión para seguir con tus diagramas.',
-                        style: TextStyle(fontSize: 14, color: _LoginColors.muted),
-                      ),
-                      const SizedBox(height: 20),
-                      _formCard(),
-                    ],
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Iniciá sesión para seguir con tus diagramas.',
+                          style: TextStyle(fontSize: 14, color: BrandColors.muted),
+                        ),
+                        const SizedBox(height: 20),
+                        _formCard(),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -110,12 +116,12 @@ class _LoginScreenState extends State<LoginScreen> {
       prefixIcon: Icon(icon, size: 20),
       suffixIcon: suffix,
       filled: true,
-      fillColor: _LoginColors.cream,
-      floatingLabelStyle: const TextStyle(color: _LoginColors.teal, fontWeight: FontWeight.w600),
-      prefixIconColor: _LoginColors.muted,
-      enabledBorder: border(_LoginColors.line),
-      focusedBorder: border(_LoginColors.teal, 2),
-      border: border(_LoginColors.line),
+      fillColor: BrandColors.cream,
+      floatingLabelStyle: const TextStyle(color: BrandColors.teal, fontWeight: FontWeight.w600),
+      prefixIconColor: BrandColors.muted,
+      enabledBorder: border(BrandColors.line),
+      focusedBorder: border(BrandColors.teal, 2),
+      border: border(BrandColors.line),
     );
   }
 
@@ -132,7 +138,7 @@ class _LoginScreenState extends State<LoginScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(height: 4, color: _LoginColors.amber),
+          Container(height: 4, color: BrandColors.amber),
           Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
@@ -155,7 +161,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     suffix: IconButton(
                       tooltip: _showPwd ? 'Ocultar contraseña' : 'Mostrar contraseña',
                       icon: Icon(_showPwd ? Icons.visibility_off_outlined : Icons.visibility_outlined),
-                      color: _LoginColors.muted,
+                      color: BrandColors.muted,
                       onPressed: () => setState(() => _showPwd = !_showPwd),
                     ),
                   ),
@@ -188,9 +194,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   height: 50,
                   child: FilledButton(
                     style: FilledButton.styleFrom(
-                      backgroundColor: _LoginColors.amber,
-                      foregroundColor: _LoginColors.amberInk,
-                      disabledBackgroundColor: _LoginColors.amber.withValues(alpha: 0.6),
+                      backgroundColor: BrandColors.amber,
+                      foregroundColor: BrandColors.amberInk,
+                      disabledBackgroundColor: BrandColors.amber.withValues(alpha: 0.6),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                     ),
@@ -199,7 +205,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ? const SizedBox(
                             width: 20,
                             height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: _LoginColors.amberInk),
+                            child: CircularProgressIndicator(strokeWidth: 2, color: BrandColors.amberInk),
                           )
                         : const Row(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -220,21 +226,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-/// Paleta "bosque y ámbar", la misma del login web.
-class _LoginColors {
-  static const brand = Color(0xFF0E3B36);
-  static const brandText = Color(0xFFEEF6F2);
-  static const brandMuted = Color(0xFFA8C9BF);
-  static const mint = Color(0xFF6FE0C4);
-  static const amber = Color(0xFFF4A940);
-  static const amberInk = Color(0xFF1D1405);
-  static const teal = Color(0xFF1F9C85);
-  static const cream = Color(0xFFF6F1E7);
-  static const line = Color(0xFFE4DAC6);
-  static const ink = Color(0xFF1C2A27);
-  static const muted = Color(0xFF5B6B66);
-}
-
 class _BrandHeader extends StatelessWidget {
   const _BrandHeader();
 
@@ -242,60 +233,51 @@ class _BrandHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final top = MediaQuery.of(context).padding.top;
     return CustomPaint(
-      painter: _GridPainter(),
+      painter: const BrandGridPainter(),
       child: Padding(
         padding: EdgeInsets.fromLTRB(22, top + 22, 22, 26),
-        child: Column(
+        child: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: _LoginColors.amber,
-                    borderRadius: BorderRadius.circular(11),
-                    boxShadow: const [BoxShadow(color: _LoginColors.mint, offset: Offset(4, 4))],
-                  ),
-                  child: const Icon(Icons.account_tree_outlined, color: _LoginColors.amberInk, size: 22),
-                ),
-                const SizedBox(width: 12),
-                const Text(
+                BrandLogo(),
+                SizedBox(width: 12),
+                Text(
                   'UML Collab',
                   style: TextStyle(
-                    color: _LoginColors.brandText,
+                    color: BrandColors.brandText,
                     fontSize: 17,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 22),
-            const Text.rich(
+            SizedBox(height: 22),
+            Text.rich(
               TextSpan(
                 children: [
                   TextSpan(text: 'Diseñá diagramas '),
-                  TextSpan(text: 'en equipo', style: TextStyle(color: _LoginColors.amber)),
+                  TextSpan(text: 'en equipo', style: TextStyle(color: BrandColors.amber)),
                   TextSpan(text: ', en tiempo real.'),
                 ],
               ),
               style: TextStyle(
-                color: _LoginColors.brandText,
+                color: BrandColors.brandText,
                 fontSize: 26,
                 height: 1.15,
                 fontWeight: FontWeight.w800,
                 letterSpacing: -0.4,
               ),
             ),
-            const SizedBox(height: 10),
-            const Text(
+            SizedBox(height: 10),
+            Text(
               'Editor colaborativo de diagramas de clases con un asesor de IA '
               'que revisa tu modelo y propone mejoras.',
-              style: TextStyle(color: _LoginColors.brandMuted, fontSize: 14, height: 1.4),
+              style: TextStyle(color: BrandColors.brandMuted, fontSize: 14, height: 1.4),
             ),
-            const SizedBox(height: 16),
-            const Wrap(
+            SizedBox(height: 16),
+            Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
@@ -321,19 +303,19 @@ class _Chip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: _LoginColors.mint.withValues(alpha: 0.08),
+        color: BrandColors.mint.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: _LoginColors.mint.withValues(alpha: 0.35)),
+        border: Border.all(color: BrandColors.mint.withValues(alpha: 0.35)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 15, color: _LoginColors.mint),
+          Icon(icon, size: 15, color: BrandColors.mint),
           const SizedBox(width: 6),
           Text(
             label,
             style: const TextStyle(
-              color: _LoginColors.brandText,
+              color: BrandColors.brandText,
               fontSize: 12.5,
               fontWeight: FontWeight.w500,
             ),
@@ -342,26 +324,4 @@ class _Chip extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Fondo del encabezado: color sólido con una cuadrícula tenue, como el
-/// lienzo del editor.
-class _GridPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = _LoginColors.brand);
-    final line = Paint()
-      ..color = _LoginColors.mint.withValues(alpha: 0.07)
-      ..strokeWidth = 1;
-    const step = 26.0;
-    for (double x = 0; x < size.width; x += step) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), line);
-    }
-    for (double y = 0; y < size.height; y += step) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), line);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
