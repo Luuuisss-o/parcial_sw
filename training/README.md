@@ -24,10 +24,17 @@ mobile/lib/services/assistant_prompt.dart            backend (solo aloja el arch
 | Mentoría de diseño (UML, requerimientos, patrones, SOLID, PUDS…) sin tocar el diagrama | **Destilación**: 129 preguntas respondidas por Gemini (`data/teacher_mentor.jsonl`) |
 | Resolver referencias con el hilo propio ("y ponele isbn" → la clase de *su* consulta, no la del compañero) | Plantillas con historial y contexto del equipo |
 | Entrega de soluciones según la configuración del diagrama: rechazar (desactivada) o diseñar 3-6 clases (activada) | 20 sistemas diseñados por Gemini (`data/teacher_solutions.jsonl`) |
+| **Asesor (segundo parcial):** revisar el diagrama y dejar los cambios como *propuesta* (relación faltante, multiplicidad incorrecta, atributos faltantes) o decir que está bien sin proponer nada | Plantillas (`gen_reviews`) |
 
-Dataset actual: **1274 ejemplos de entrenamiento / 110 de evaluación** (788 ediciones,
-556 mentoría, 40 soluciones completas), ~800 tokens de mediana y 1700 de máximo: entra holgado
-en los 4096 tokens de contexto que usa el celular.
+Dataset actual (**v2-asesor**): **1513 ejemplos de entrenamiento / 131 de evaluación** (ediciones,
+mentoría, soluciones completas y ~260 revisiones del asesor), ~800 tokens de mediana y 1700 de
+máximo: entra holgado en los 4096 tokens de contexto del celular y del servidor.
+
+Cambios de la v2 respecto de la v1 (modelo `2026.11.08-1519`):
+- el diagrama del prompt muestra las **multiplicidades** (`Cliente -[ASSOCIATION 1 → 0..*]-> Pedido`);
+- regla 7 del prompt: revisión con propuesta;
+- **agregación y composición van de la parte al todo** (como el editor, el XMI y el generador de
+  backend). En la v1 estaban al revés y el modelo creaba composiciones invertidas.
 
 ## Un solo prompt para entrenar y para usar
 
@@ -69,8 +76,12 @@ Si se agota la cuota diaria de `gemini-3.5-flash`, sigue solo con `gemini-3.5-fl
 3. El progreso queda en Google Drive (`MyDrive/uml_ia/`): línea de base, checkpoints cada 40
    pasos, modelo entrenado y `.gguf`. Si Colab se desconecta, se vuelve a ejecutar todo en orden y
    cada paso ya hecho se salta o se retoma desde el último checkpoint.
-4. (Opcional) La última sección lo sirve desde Colab como API compatible con OpenAI, para que
-   la web también lo pueda elegir como proveedor (chat → *Modelo* → *Cambiar* → *Colab / vLLM*).
+4. Cada versión del dataset guarda su progreso en su propia carpeta de Drive (`VERSION` en la
+   celda de Drive, hoy `v2-asesor`): con un dataset nuevo se entrena de cero en vez de reutilizar
+   el modelo anterior.
+5. **En el servidor:** el modelo publicado lo sirve llama.cpp en una EC2 aparte y la web lo usa
+   como *Modelo propio del equipo* (ver `deploy/model_server/README.md`). La última sección del
+   notebook lo sirve desde Colab de forma temporal, como alternativa.
 
 ## En el celular
 

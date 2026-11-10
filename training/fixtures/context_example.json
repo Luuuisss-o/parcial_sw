@@ -12,7 +12,9 @@
        "metodos": [{"nombre": "saludar", "tipo_retorno": "void"}]},
       {"nombre": "Curso", "atributos": [], "metodos": []}
     ],
-    "relaciones": [{"origen": "Persona", "destino": "Curso", "tipo": "ASSOCIATION", "etiqueta": null}]
+    "relaciones": [{"origen": "Persona", "destino": "Curso", "tipo": "ASSOCIATION", "etiqueta": null},
+                   {"origen": "Curso", "destino": "Persona", "tipo": "AGGREGATION", "etiqueta": null,
+                    "mult_origen": "1", "mult_destino": "0..*"}]
   },
   "team_context": [
     {"author": "Ana Pérez", "content": "propongo que Persona sea la clase base", "is_ai": false, "addressed_to": null},

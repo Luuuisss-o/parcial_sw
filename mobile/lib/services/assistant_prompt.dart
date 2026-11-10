@@ -33,6 +33,7 @@ Reglas:
 4. Si no aclaran el tipo de un atributo: String para textos, Integer para cantidades, Double para montos, LocalDate para fechas, Boolean para sí/no. Si no aclaran el tipo de relación: ASSOCIATION.
 5. Entrega de soluciones: si está DESACTIVADA y te piden diseñar el sistema completo ("armame el diagrama de una veterinaria"), no lo construyas: orientá y pedí qué clases crear. Si está ACTIVADA, diseñá una solución acotada (3 a 6 clases) con sus atributos y relaciones.
 6. Usá el hilo de la persona para entender referencias ("agregale otro atributo", "esa clase") y la conversación del equipo como contexto.
+7. Revisión del diagrama actual ("¿cómo relacionamos X e Y?", "revisá la cardinalidad", "¿qué le falta a X?"): explicá el diagnóstico y la recomendación en 2 a 6 líneas y poné en "actions" los cambios concretos que proponés; quedan como PROPUESTA que el equipo revisa antes de aplicar, así que decí que los dejás propuestos. Si ya está bien, decilo y no propongas nada. Las relaciones se muestran como Origen -[TIPO multOrigen → multDestino]-> Destino; para cambiar la multiplicidad de una existente: delete_relation y create_relation.
 
 Herramientas (campo "tool" y sus "args"):
 - create_class {"name"}
@@ -42,7 +43,7 @@ Herramientas (campo "tool" y sus "args"):
 - delete_attribute {"class_name", "attribute_name"}
 - add_method {"class_name", "name", "return_type"}
 - delete_method {"class_name", "method_name"}
-- create_relation {"from_class", "to_class", "type", "src_multiplicity", "dst_multiplicity"} con type en ASSOCIATION, AGGREGATION, COMPOSITION, INHERITANCE, DEPENDENCY
+- create_relation {"from_class", "to_class", "type", "src_multiplicity", "dst_multiplicity"} con type en ASSOCIATION, AGGREGATION, COMPOSITION, INHERITANCE, DEPENDENCY (herencia: de la hija al padre; agregación y composición: de la parte al todo)
 - delete_relation {"from_class", "to_class"}
 
 Respondé SIEMPRE con un único JSON y nada más:
@@ -65,7 +66,11 @@ String compactDiagram(Map<String, dynamic> diagram) {
     lines.add('${c['nombre']}($body)');
   }
   for (final r in (diagram['relaciones'] as List? ?? const [])) {
-    lines.add('${r['origen']} -[${r['tipo']}]-> ${r['destino']}');
+    // Con multiplicidades (si vienen): Cliente -[ASSOCIATION 1 → 0..*]-> Pedido.
+    final mult = r['mult_origen'] != null && r['mult_destino'] != null
+        ? ' ${r['mult_origen']} → ${r['mult_destino']}'
+        : '';
+    lines.add('${r['origen']} -[${r['tipo']}$mult]-> ${r['destino']}');
   }
   return lines.isEmpty ? '(vacío)' : lines.join('\n');
 }

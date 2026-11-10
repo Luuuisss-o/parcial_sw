@@ -5,6 +5,7 @@ Diagrama actual:
 Persona(nombre: String, fechaNacimiento: LocalDate; saludar(): void)
 Curso()
 Persona -[ASSOCIATION]-> Curso
+Curso -[AGGREGATION 1 → 0..*]-> Persona
 
 Conversación reciente del equipo:
 - Ana Pérez: propongo que Persona sea la clase base

@@ -36,7 +36,10 @@ def compact_diagram(diagram: dict) -> str:
         body = "; ".join(p for p in (", ".join(attrs), ", ".join(methods)) if p)
         lines.append(f"{c['nombre']}({body})")
     for r in diagram.get("relaciones", []):
-        lines.append(f"{r['origen']} -[{r['tipo']}]-> {r['destino']}")
+        # Con multiplicidades (si vienen): Cliente -[ASSOCIATION 1 → 0..*]-> Pedido.
+        mult = (f" {r['mult_origen']} → {r['mult_destino']}"
+                if r.get("mult_origen") is not None and r.get("mult_destino") is not None else "")
+        lines.append(f"{r['origen']} -[{r['tipo']}{mult}]-> {r['destino']}")
     return "\n".join(lines) if lines else "(vacío)"
 
 

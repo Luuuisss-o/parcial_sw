@@ -94,3 +94,31 @@ def test_hilo_individual_resuelve_referencias(all_rows):
         user, out = r["messages"][0]["content"], json.loads(r["messages"][1]["content"])
         clase_del_hilo = re.search(r"IA: \w+, creé la clase (\w+)", user).group(1)
         assert out["actions"][0]["args"]["class_name"] == clase_del_hilo  # no la del compañero
+
+
+def test_composicion_va_de_la_parte_al_todo(all_rows):
+    """Como el editor (rombo en el destino): el extremo destino (el todo) de
+    una composicion tiene multiplicidad 1; una parte pertenece a un solo todo.
+    Antes el dataset las tenia al reves (Pedido -> DetallePedido)."""
+    n = 0
+    for r in all_rows:
+        for a in json.loads(r["messages"][1]["content"])["actions"]:
+            if a["tool"] == "create_relation" and a["args"]["type"] == "COMPOSITION":
+                n += 1
+                assert a["args"].get("dst_multiplicity") in ("1", "0..1"), a
+    assert n >= 30
+
+
+def test_revision_propone_o_confirma(all_rows):
+    """Segundo parcial: en una revision el asesor deja la propuesta en actions,
+    o dice que esta bien y no propone nada."""
+    propuestas = confirmadas = 0
+    for r in all_rows:
+        out = json.loads(r["messages"][1]["content"])
+        if "propuest" in out["say"]:
+            assert out["actions"], out["say"]
+            propuestas += 1
+        elif "No hace falta cambiarla" in out["say"]:
+            assert out["actions"] == []
+            confirmadas += 1
+    assert propuestas >= 150 and confirmadas >= 25

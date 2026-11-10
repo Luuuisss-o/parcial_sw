@@ -99,21 +99,24 @@ DOMAINS = {
 }
 
 # Relaciones "naturales" por dominio: (origen, destino, tipo, mult_origen, mult_destino, frase)
+# Agregacion/composicion van de la PARTE al TODO (el rombo se dibuja en el
+# destino), como el editor, el XMI y el generador de backend. Antes estaban
+# al reves (todo -> parte) y el modelo aprendia composiciones invertidas.
 RELATIONS = [
     ("Cliente", "Pedido", "ASSOCIATION", "1", "0..*", "de uno a muchos"),
-    ("Pedido", "DetallePedido", "COMPOSITION", "1", "1..*", "como composición"),
+    ("DetallePedido", "Pedido", "COMPOSITION", "1..*", "1", "como composición"),
     ("Producto", "DetallePedido", "ASSOCIATION", "1", "0..*", "de uno a muchos"),
     ("Pedido", "Factura", "ASSOCIATION", "1", "1", "uno a uno"),
     ("Factura", "Pago", "ASSOCIATION", "1", "0..*", "de uno a muchos"),
     ("Estudiante", "Inscripcion", "ASSOCIATION", "1", "0..*", "de uno a muchos"),
     ("Materia", "Inscripcion", "ASSOCIATION", "1", "0..*", "de uno a muchos"),
     ("Docente", "Materia", "ASSOCIATION", "1", "0..*", "de uno a muchos"),
-    ("Carrera", "Materia", "AGGREGATION", "1", "1..*", "como agregación"),
+    ("Materia", "Carrera", "AGGREGATION", "1..*", "1", "como agregación"),
     ("Paciente", "Turno", "ASSOCIATION", "1", "0..*", "de uno a muchos"),
     ("Medico", "Turno", "ASSOCIATION", "1", "0..*", "de uno a muchos"),
-    ("Paciente", "HistoriaClinica", "COMPOSITION", "1", "1", "como composición"),
+    ("HistoriaClinica", "Paciente", "COMPOSITION", "1", "1", "como composición"),
     ("Autor", "Libro", "ASSOCIATION", "1..*", "0..*", "de muchos a muchos"),
-    ("Libro", "Ejemplar", "COMPOSITION", "1", "1..*", "como composición"),
+    ("Ejemplar", "Libro", "COMPOSITION", "1..*", "1", "como composición"),
     ("Socio", "Prestamo", "ASSOCIATION", "1", "0..*", "de uno a muchos"),
     ("Huesped", "Reserva", "ASSOCIATION", "1", "0..*", "de uno a muchos"),
     ("Habitacion", "Reserva", "ASSOCIATION", "1", "0..*", "de uno a muchos"),
@@ -153,7 +156,13 @@ def diagram_of(classes: dict[str, list[tuple[str, str]]], rels: list[tuple] = ()
             {"nombre": c, "atributos": [{"nombre": n, "tipo": t, "requerido": False} for n, t in attrs], "metodos": []}
             for c, attrs in classes.items()
         ],
-        "relaciones": [{"origen": o, "destino": d, "tipo": t, "etiqueta": None} for o, d, t, *_ in rels],
+        # Las relaciones con multiplicidades (tuplas de RELATIONS) las muestran
+        # en el prompt, como el diagrama real (segundo parcial).
+        "relaciones": [
+            {"origen": r[0], "destino": r[1], "tipo": r[2], "etiqueta": None,
+             **({"mult_origen": r[3], "mult_destino": r[4]} if len(r) >= 5 else {})}
+            for r in rels
+        ],
     }
 
 
@@ -307,6 +316,18 @@ SYSTEMS = {"una veterinaria": "veterinaria", "un colegio": "colegio", "una bibli
            "una inmobiliaria": "inmobiliaria", "un sistema de encuestas": "encuestas"}
 
 
+def _relation_action(r: dict) -> dict:
+    """Relacion del maestro -> accion. Gemini describio agregacion/composicion
+    del TODO a la PARTE (Pedido -> ItemPedido); el editor las dibuja de la
+    parte al todo (rombo en el destino), asi que se invierten con sus
+    multiplicidades."""
+    src, dst, ms, md = r["from"], r["to"], r.get("src", "1"), r.get("dst", "0..*")
+    if r["type"] in ("AGGREGATION", "COMPOSITION"):
+        src, dst, ms, md = dst, src, md, ms
+    return act("create_relation", from_class=src, to_class=dst, type=r["type"],
+               src_multiplicity=ms, dst_multiplicity=md)
+
+
 def gen_solutions(rng, teacher: list[dict]) -> list[tuple[dict, str]]:
     out = []
     by_system = {t["system"]: t for t in teacher}
@@ -330,9 +351,7 @@ def gen_solutions(rng, teacher: list[dict]) -> list[tuple[dict, str]]:
                         actions.append(act("create_class", name=c["name"]))
                         actions += [act("add_attribute", class_name=c["name"], name=a["name"], type=a["type"], required=False)
                                     for a in c.get("attributes", [])]
-                    actions += [act("create_relation", from_class=r["from"], to_class=r["to"], type=r["type"],
-                                    src_multiplicity=r.get("src", "1"), dst_multiplicity=r.get("dst", "0..*"))
-                                for r in t.get("relations", [])]
+                    actions += [_relation_action(r) for r in t.get("relations", [])]
                     say = f"{fn}, {t['summary'][0].lower() + t['summary'][1:]}"
                     out.append((ctx(rng, who, q, {}, team=random_team(rng, who), solutions=True), pc.assistant_json(say, actions)))
     return out
@@ -439,6 +458,91 @@ def run_teacher() -> None:
             print(f"[solución] {system}: {[c['name'] for c in data['classes']]}")
 
 
+# ---------------------------------------------------------------------------
+# 5. Revision del diagrama con PROPUESTA (segundo parcial)
+# ---------------------------------------------------------------------------
+# El asesor explica el diagnostico y deja en "actions" los cambios que
+# propone; la app los muestra como propuesta y un integrante los acepta. Si
+# el diagrama ya esta bien, no propone nada (evita proponer por proponer).
+REVIEW_REL_ASKS = [
+    "¿cómo relacionamos {a} y {b}?", "¿qué relación debería haber entre {a} y {b}?",
+    "¿cómo conectamos {a} con {b}?", "revisá cómo se relacionan {a} y {b}",
+    "¿{a} y {b} deberían estar relacionadas?",
+]
+REVIEW_MULT_ASKS = [
+    "revisá la relación entre {a} y {b}, ¿está bien la cardinalidad?",
+    "¿está bien la multiplicidad entre {a} y {b}?", "¿es correcta la relación de {a} con {b}?",
+    "revisá la cardinalidad de {a} y {b}",
+]
+REVIEW_ATTR_ASKS = ["¿qué atributos le faltan a {a}?", "¿qué le falta a la clase {a}?",
+                    "revisá la clase {a}, ¿le falta algo?", "¿{a} está completa?"]
+WHY = {
+    ("1", "0..*"): "un {a} puede tener varios {b} y cada {b} pertenece a un solo {a}",
+    ("1", "1..*"): "un {a} tiene al menos un {b} y cada {b} pertenece a un solo {a}",
+    ("1..*", "1"): "{a} es parte de {b}: cada {b} tiene uno o más {a} y cada {a} pertenece a un solo {b}",
+    ("1..*", "0..*"): "un {a} puede estar en varios {b} y cada {b} tiene uno o más {a}",
+    ("1", "1"): "cada {a} se corresponde con exactamente un {b}",
+}
+REL_ES = {"ASSOCIATION": "asociación", "AGGREGATION": "agregación", "COMPOSITION": "composición"}
+PROPOSE = ["Te lo dejo propuesto para que el equipo lo revise.",
+           "Lo dejo como propuesta para que lo apliquen si están de acuerdo.",
+           "Quedó propuesto: lo pueden aplicar desde el chat."]
+
+
+def _mult_text(mo: str, md: str) -> str:
+    return f"{mo} → {md}"
+
+
+def gen_reviews(rng, n: int) -> list[tuple[dict, str]]:
+    out = []
+    domain_of = {c: d for d, classes in DOMAINS.items() for c in classes}
+    rels = [r for r in RELATIONS if r[0] in domain_of and domain_of[r[0]] == domain_of.get(r[1])]
+    for _ in range(n):
+        who = rng.choice(PEOPLE)
+        fn = first(who)
+        o, d, t, mo, md, _frase = rng.choice(rels)
+        dom = DOMAINS[domain_of[o]]
+        classes = {c: rng.sample(dom[c], rng.randint(1, len(dom[c]))) for c in (o, d)}
+        why = WHY.get((mo, md), "es la cardinalidad que corresponde a este dominio").format(a=o, b=d)
+        kind = rng.choices(["missing_rel", "wrong_mult", "ok_rel", "missing_attr"], weights=[35, 25, 15, 25])[0]
+
+        if kind == "missing_rel":
+            q = rng.choice(REVIEW_REL_ASKS).format(a=o, b=d)
+            say = (f"{fn}, hoy {o} y {d} no están relacionadas. Conviene una {REL_ES.get(t, t.lower())} "
+                   f"{o} {_mult_text(mo, md)} {d}: {why}. {rng.choice(PROPOSE)}")
+            actions = [act("create_relation", from_class=o, to_class=d, type=t,
+                           src_multiplicity=mo, dst_multiplicity=md)]
+            out.append((ctx(rng, who, q, classes, team=random_team(rng, who)), pc.assistant_json(say, actions)))
+        elif kind == "wrong_mult":
+            wrong = rng.choice([w for w in (("1", "1"), ("0..*", "1"), ("1", "0..1")) if w != (mo, md)])
+            q = rng.choice(REVIEW_MULT_ASKS).format(a=o, b=d)
+            say = (f"{fn}, la relación {o} {_mult_text(*wrong)} {d} no es correcta: {why}, así que "
+                   f"debería ser {_mult_text(mo, md)}. Propongo reemplazarla. {rng.choice(PROPOSE)}")
+            actions = [act("delete_relation", from_class=o, to_class=d),
+                       act("create_relation", from_class=o, to_class=d, type=t,
+                           src_multiplicity=mo, dst_multiplicity=md)]
+            rel = [(o, d, t, wrong[0], wrong[1])]
+            out.append((ctx(rng, who, q, classes, rel, team=random_team(rng, who)), pc.assistant_json(say, actions)))
+        elif kind == "ok_rel":
+            q = rng.choice(REVIEW_MULT_ASKS).format(a=o, b=d)
+            say = (f"{fn}, la relación {o} {_mult_text(mo, md)} {d} está bien: {why}. "
+                   f"No hace falta cambiarla.")
+            out.append((ctx(rng, who, q, classes, [(o, d, t, mo, md)], team=random_team(rng, who)),
+                        pc.assistant_json(say, [])))
+        else:
+            target = rng.choice([o, d])
+            have = rng.sample(dom[target], rng.randint(0, max(0, len(dom[target]) - 2)))
+            missing = [a for a in dom[target] if a not in have][:3]
+            classes[target] = have
+            q = rng.choice(REVIEW_ATTR_ASKS).format(a=target)
+            listed = join_es([f"{n_} ({t_})" for n_, t_ in missing])
+            say = (f"{fn}, a {target} le faltan datos básicos para el dominio: {listed}. "
+                   f"{rng.choice(PROPOSE)}")
+            actions = [act("add_attribute", class_name=target, name=n_, type=t_, required=False) for n_, t_ in missing]
+            out.append((ctx(rng, who, q, classes, team=random_team(rng, who)), pc.assistant_json(say, actions)))
+    return out
+
+
 def _load(path: Path) -> list[dict]:
     if not path.exists():
         return []
@@ -470,13 +574,14 @@ def build(seed: int = 42, eval_ratio: float = 0.08) -> dict:
     pairs += gen_history_refs(rng, 160)
     pairs += gen_mentor(rng, mentor, per_question=4)
     pairs += gen_solutions(rng, solutions)
+    pairs += gen_reviews(rng, 260)
     rng.shuffle(pairs)
 
     examples = [to_example(c, a, system) for c, a in pairs]
     n_eval = max(1, int(len(examples) * eval_ratio))
     DATA.mkdir(exist_ok=True)
     for name, rows in (("eval.jsonl", examples[:n_eval]), ("train.jsonl", examples[n_eval:])):
-        with (DATA / name).open("w", encoding="utf-8") as f:
+        with (DATA / name).open("w", encoding="utf-8", newline="\n") as f:  # LF tambien en Windows
             for r in rows:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
     stats = {"train": len(examples) - n_eval, "eval": n_eval, "mentor_teacher": len(mentor),
