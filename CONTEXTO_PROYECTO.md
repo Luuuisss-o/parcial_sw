@@ -320,7 +320,7 @@ Confirmado funcionando (probado en esta sesión con Docker real, no solo revisi�
 
 ## 15. Estado actual
 
-Ver `docs/estado-1p.md` (auditoría del 9/11/2026): CU-01…CU-09 verificados con pruebas ejecutadas; la única validación pendiente es abrir el XMI en Enterprise Architect. Producción: `https://uml-equipo.duckdns.org` (EC2, `docs/DESPLIEGUE.md`).
+Segundo parcial (asesor IA del equipo, propuestas de cambios aplicables): `docs/estado-2p.md`. Primer parcial: ver `docs/estado-1p.md` (auditoría del 9/11/2026): CU-01…CU-09 verificados con pruebas ejecutadas; la única validación pendiente es abrir el XMI en Enterprise Architect. Producción: `https://uml-equipo.duckdns.org` (EC2, `docs/DESPLIEGUE.md`).
 
 ## 16. Próximos pasos
 
