@@ -1,6 +1,9 @@
 # Servidor del modelo PROPIO del equipo (Gemma 3 1B ajustado, GGUF) con
 # llama.cpp. Corre en una EC2 aparte; solo el servidor principal llega al
-# puerto 8080 (regla del security group) y ademas exige LOCAL_MODEL_API_KEY.
+# puerto 8080 (regla del security group), exige LOCAL_MODEL_API_KEY y sirve
+# SOLO HTTPS con un certificado propio (make_cert.sh) en el que el backend
+# confia en exclusiva (pinning): la clave del modelo y las consultas viajan
+# cifradas entre los dos servidores.
 # El backend le habla en backend/app/services/trained_model.py.
 services:
   llama:
@@ -15,8 +18,11 @@ services:
       "-t", "2",             # t3.medium: 2 vCPU
       "--alias", "gemma-3-1b-equipo",
       "--api-key", "${LOCAL_MODEL_API_KEY}",
+      "--ssl-key-file", "/certs/key.pem",
+      "--ssl-cert-file", "/certs/cert.pem",
     ]
     volumes:
       - ./models:/models:ro
+      - ./certs:/certs:ro
     ports:
       - "8080:8080"

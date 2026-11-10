@@ -39,6 +39,7 @@ services:
       # modelo (deploy/model_server). Vacio = no disponible como proveedor.
       LOCAL_MODEL_URL: ${LOCAL_MODEL_URL:-}
       LOCAL_MODEL_API_KEY: ${LOCAL_MODEL_API_KEY:-}
+      LOCAL_MODEL_CERT: ${LOCAL_MODEL_CERT:-}
       MODEL_SYNC_TOKEN: ${MODEL_SYNC_TOKEN:-}
     volumes:
       - assistant_models:/app/data/models

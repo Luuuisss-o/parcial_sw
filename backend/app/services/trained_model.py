@@ -16,11 +16,14 @@ Con la respuesta:
 """
 from __future__ import annotations
 
+import base64
 import importlib.util
 import json
 import logging
 import os
+import ssl
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 
@@ -82,10 +85,42 @@ def _headers() -> dict:
     return {"Authorization": f"Bearer {settings.LOCAL_MODEL_API_KEY}"} if settings.LOCAL_MODEL_API_KEY else {}
 
 
+_ssl_ctx: ssl.SSLContext | None = None
+_ssl_ctx_src: str | None = None
+_warned_plain = False
+
+
+def _verify() -> ssl.SSLContext | bool:
+    """Como validar el TLS del servidor del modelo.
+
+    Con LOCAL_MODEL_CERT (PEM en base64) se confia SOLO en ese certificado
+    (pinning): ni otra CA ni otro certificado sirven, aunque sean "validos".
+    Sin el, se usa la verificacion normal del sistema."""
+    global _ssl_ctx, _ssl_ctx_src, _warned_plain
+    url = settings.LOCAL_MODEL_URL
+    host = urlparse(url).hostname or ""
+    local = host in ("localhost", "127.0.0.1", "host.docker.internal")
+    if url.startswith("http://") and not local and not _warned_plain:
+        _warned_plain = True
+        logger.warning("LOCAL_MODEL_URL usa http:// hacia %s: la clave y las consultas viajan sin cifrar", host)
+    cert_b64 = settings.LOCAL_MODEL_CERT.strip()
+    if not cert_b64:
+        return True
+    if _ssl_ctx is None or _ssl_ctx_src != cert_b64:
+        pem = base64.b64decode(cert_b64).decode("ascii")
+        _ssl_ctx = ssl.create_default_context(cadata=pem)
+        _ssl_ctx_src = cert_b64
+    return _ssl_ctx
+
+
+def _client(timeout: float) -> httpx.Client:
+    return httpx.Client(timeout=timeout, verify=_verify())
+
+
 def complete(prompt: str, max_tokens: int = 512) -> str:
     if not available():
         raise RuntimeError("El servidor no tiene configurado el modelo propio (LOCAL_MODEL_URL).")
-    with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+    with _client(REQUEST_TIMEOUT) as client:
         r = client.post(
             f"{settings.LOCAL_MODEL_URL.rstrip('/')}/completion",
             headers=_headers(),
@@ -99,7 +134,7 @@ def complete(prompt: str, max_tokens: int = 512) -> str:
 
 
 def health() -> str:
-    with httpx.Client(timeout=15.0) as client:
+    with _client(15.0) as client:
         r = client.get(f"{settings.LOCAL_MODEL_URL.rstrip('/')}/health", headers=_headers())
     r.raise_for_status()
     return r.json().get("status", "ok")

@@ -76,6 +76,9 @@ Se agregó en este parcial:
   con propuesta, multiplicidades en el prompt y corrige la dirección de agregación/composición.
 - **Servidor:** llama.cpp en una EC2 aparte (`deploy/model_server`), accesible solo desde el
   backend y con clave; se actualiza solo cuando se publica un modelo nuevo desde Colab.
+- **Enlace cifrado:** las dos EC2 están en cuentas de AWS distintas y se hablan por IP pública,
+  así que el modelo sirve **solo HTTPS** con un certificado propio y el backend confía únicamente
+  en ese certificado (*pinning*, `LOCAL_MODEL_CERT`); pruebas `tests/test_modelo_tls.py` (3).
 - **Backend:** proveedor `trained` (`services/trained_model.py`) con el **mismo prompt del
   entrenamiento** (`training/prompt_contract.py`): ejecuta las ediciones y deja como propuesta
   lo que recomienda como asesor.

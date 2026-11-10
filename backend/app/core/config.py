@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # (deploy/model_server). Vacio = no disponible como proveedor.
     LOCAL_MODEL_URL: str = ""
     LOCAL_MODEL_API_KEY: str = ""
+    # Certificado (PEM en base64) del servidor del modelo: con https:// el
+    # backend confia SOLO en el (pinning). Lo imprime setup_model_server.sh.
+    LOCAL_MODEL_CERT: str = ""
     LOCAL_MODEL_LABEL: str = "Gemma 3 1B propio del equipo"
     # Token con el que el servidor del modelo descarga las versiones nuevas
     # (GET /models/assistant[/download]) sin una cuenta de usuario.
