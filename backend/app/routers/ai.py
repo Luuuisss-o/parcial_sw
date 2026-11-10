@@ -5,6 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from uuid import UUID
 
+from app.core.config import settings
 from app.db import get_db
 from app.core.security import get_current_user
 from app.models.user import User
@@ -66,6 +67,7 @@ def _settings_out(diagram) -> AiSettingsOut:
         model=cfg.model or (llm_providers.DEFAULT_GEMINI_MODEL if cfg.kind == llm_providers.PROVIDER_GEMINI else None),
         base_url=cfg.base_url,
         has_api_key=bool(diagram.ai_api_key),
+        trained_available=bool(settings.LOCAL_MODEL_URL),
         provider_label=cfg.label,
     )
 
@@ -121,6 +123,9 @@ async def update_ai_settings(
             diagram.ai_model = body.model.strip() or None
         if body.api_key is not None:
             diagram.ai_api_key = body.api_key.strip() or None
+    if diagram.ai_provider == llm_providers.PROVIDER_TRAINED and not settings.LOCAL_MODEL_URL:
+        db.rollback()
+        raise HTTPException(422, "Este servidor no tiene configurado el modelo propio del equipo")
     if diagram.ai_provider == llm_providers.PROVIDER_OPENAI and not (diagram.ai_base_url and diagram.ai_model):
         db.rollback()
         raise HTTPException(422, "Para un modelo local/OpenAI-compatible hay que indicar el endpoint y el modelo")

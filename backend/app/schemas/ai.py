@@ -25,7 +25,8 @@ class AiSettingsOut(BaseModel):
     mode: str = "on_demand"          # solo responde cuando se lo consulta (no interviene solo)
     proposals_enabled: bool = True   # puede proponer cambios (siempre requieren aceptacion)
     solutions_enabled: bool
-    provider: str            # "gemini" | "openai_compatible"
+    provider: str            # "gemini" | "openai_compatible" | "trained"
+    trained_available: bool = False  # el servidor tiene el modelo propio del equipo
     provider_is_default: bool  # True si el diagrama usa el proveedor por defecto del servidor
     model: Optional[str] = None
     base_url: Optional[str] = None
@@ -42,7 +43,7 @@ class AiSettingsIn(BaseModel):
     enabled: Optional[bool] = None
     proposals_enabled: Optional[bool] = None
     solutions_enabled: Optional[bool] = None
-    provider: Optional[Literal["default", "gemini", "openai_compatible"]] = None
+    provider: Optional[Literal["default", "gemini", "openai_compatible", "trained"]] = None
     base_url: Optional[str] = Field(None, max_length=500)
     model: Optional[str] = Field(None, max_length=200)
     api_key: Optional[str] = Field(None, max_length=500)

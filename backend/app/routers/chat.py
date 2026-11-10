@@ -135,5 +135,5 @@ def answer_from_device(
         raise HTTPException(409, "Esa consulta ya tiene respuesta")
     return chat_service.save_device_answer(
         db, q, content=body.content, error=body.error, actions=body.actions,
-        ai_mode=body.ai_mode, model_label=body.model_label,
+        ai_mode=body.ai_mode, model_label=body.model_label, proposed_actions=body.proposed_actions,
     )

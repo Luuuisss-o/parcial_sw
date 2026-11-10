@@ -394,7 +394,8 @@ def device_context(db: Session, question: ChatMessage, diagram: Diagram) -> dict
 
 
 def save_device_answer(db: Session, question: ChatMessage, *, content: str | None, error: str | None,
-                       actions: list | None, ai_mode: str | None, model_label: str | None) -> ChatMessage:
+                       actions: list | None, ai_mode: str | None, model_label: str | None,
+                       proposed_actions: list | None = None) -> ChatMessage:
     """Publica la respuesta del modelo local del celular como cualquier otra
     respuesta de la IA: dirigida a quien pregunto y visible para todos."""
     requested_by = {"id": question.author_id, "name": question.author_name}
@@ -410,6 +411,22 @@ def save_device_answer(db: Session, question: ChatMessage, *, content: str | Non
     reply = address_reply(content, question.author_name)
     msg = _save_ai_message(db, question, ChatRole.ASSISTANT, reply, actions, ai_mode=ai_mode or "AUTO",
                            model_label=label)
+    # El asesor del celular propuso cambios: se validan contra el diagrama
+    # vigente y quedan como propuesta (mismo flujo que el asesor del servidor).
+    diagram = db.get(Diagram, question.diagram_id)
+    if proposed_actions and diagram is not None and diagram.ai_proposals_enabled:
+        from app.services.ai_tools import DiagramToolExecutor
+        snapshot = DiagramToolExecutor(db, diagram).snapshot()
+        ops, errors, touched = ai_proposals.validate_operations(snapshot, proposed_actions)
+        if ops and not errors:
+            requester = ai_assistant.Requester(user_id=question.author_id, name=question.author_name,
+                                               email=question.author_email)
+            ai_proposals.create(db, diagram, draft={"summary": reply.split("\n")[0][:300], "operations": ops,
+                                                    "base_hash": ai_proposals.touched_hash(snapshot, touched)},
+                                question_id=question.id, message_id=msg.id, requester=requester)
+            db.refresh(msg)
+        else:
+            logger.info(f"[AI CHAT] propuesta del celular descartada: {errors}")
     _set_status(db, question, AI_COMPLETED)
     publish(question.diagram_id, msg)
     realtime_events.fire(realtime_events.notify_ai_done(

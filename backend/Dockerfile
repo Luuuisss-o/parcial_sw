@@ -8,6 +8,10 @@ COPY backend/alembic ./alembic
 COPY backend/alembic.ini ./alembic.ini
 COPY backend/seeds ./seeds
 COPY exporters ./exporters
+# Contrato del modelo propio (mismo prompt que el entrenamiento y el celular):
+# prompt_contract.py lee el prompt de sistema del archivo Dart.
+COPY training/prompt_contract.py ./training/prompt_contract.py
+COPY mobile/lib/services/assistant_prompt.dart ./mobile/lib/services/assistant_prompt.dart
 COPY backend/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && chmod +x /usr/local/bin/docker-entrypoint.sh
 EXPOSE 8000

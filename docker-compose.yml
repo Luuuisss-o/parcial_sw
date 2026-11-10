@@ -42,6 +42,11 @@ services:
       AI_API_KEY: ${AI_API_KEY:-}
       # Modelo personalizado que descargan los celulares (Fase 2).
       MODELS_DIR: /app/data/models
+      # Modelo propio del equipo (Gemma 3 1B ajustado) en el servidor del
+      # modelo (deploy/model_server). Vacio = no disponible como proveedor.
+      LOCAL_MODEL_URL: ${LOCAL_MODEL_URL:-}
+      LOCAL_MODEL_API_KEY: ${LOCAL_MODEL_API_KEY:-}
+      MODEL_SYNC_TOKEN: ${MODEL_SYNC_TOKEN:-}
     volumes:
       - assistant_models:/app/data/models
     ports:

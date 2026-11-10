@@ -14,6 +14,7 @@ Range si se corta) y verifica el SHA-256 antes de usarla.
   PUT /models/assistant            subir una version nueva (solo rol admin)
 """
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -22,11 +23,14 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from app.core.config import settings
-from app.core.security import get_current_user
+from sqlalchemy.orm import Session
+
+from app.core.security import bearer, get_current_user
+from app.db import get_db
 from app.models.user import Role, User
 from app.schemas.models import ModelManifest
 
@@ -53,8 +57,17 @@ def _read_manifest() -> dict | None:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
+def _reader(request: Request, cred=Depends(bearer), db: Session = Depends(get_db)):
+    """Usuario logueado, o el servidor del modelo propio con su token de
+    sincronizacion (deploy/model_server descarga asi las versiones nuevas)."""
+    token = request.headers.get("X-Model-Sync-Token", "")
+    if settings.MODEL_SYNC_TOKEN and token and hmac.compare_digest(token, settings.MODEL_SYNC_TOKEN):
+        return None
+    return get_current_user(cred, db)
+
+
 @router.get("/assistant", response_model=ModelManifest)
-def get_manifest(me: User = Depends(get_current_user)):
+def get_manifest(me=Depends(_reader)):
     m = _read_manifest()
     if not m:
         return ModelManifest(available=False)
@@ -62,7 +75,7 @@ def get_manifest(me: User = Depends(get_current_user)):
 
 
 @router.get("/assistant/download")
-def download_model(me: User = Depends(get_current_user)):
+def download_model(me=Depends(_reader)):
     m = _read_manifest()
     if not m:
         raise HTTPException(404, "Todavía no se subió ningún modelo personalizado")

@@ -40,7 +40,10 @@ logger = logging.getLogger(__name__)
 
 PROVIDER_GEMINI = "gemini"
 PROVIDER_OPENAI = "openai_compatible"
-PROVIDERS = (PROVIDER_GEMINI, PROVIDER_OPENAI)
+# Modelo propio del equipo (Gemma 3 1B ajustado) servido con llama.cpp: no
+# usa tool calling sino el contrato del entrenamiento (ver trained_model.py).
+PROVIDER_TRAINED = "trained"
+PROVIDERS = (PROVIDER_GEMINI, PROVIDER_OPENAI, PROVIDER_TRAINED)
 
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 REQUEST_TIMEOUT = 45.0
@@ -64,6 +67,8 @@ class ProviderConfig:
     def label(self) -> str:
         if self.kind == PROVIDER_GEMINI:
             return f"Gemini ({self.model or DEFAULT_GEMINI_MODEL})"
+        if self.kind == PROVIDER_TRAINED:
+            return settings.LOCAL_MODEL_LABEL
         host = urlparse(self.base_url or "").hostname or self.base_url
         return f"{self.model} ({host})"
 
@@ -96,6 +101,9 @@ def config_for(diagram) -> ProviderConfig:
     kind = getattr(diagram, "ai_provider", None)
     if not kind:
         return server_default()
+    if kind == PROVIDER_TRAINED:
+        # La URL y la clave son del servidor (.env), nunca del diagrama.
+        return ProviderConfig(PROVIDER_TRAINED, settings.LOCAL_MODEL_LABEL, settings.LOCAL_MODEL_URL or None)
     return ProviderConfig(kind, diagram.ai_model or None, diagram.ai_base_url or None,
                           diagram.ai_api_key or None)
 
@@ -255,6 +263,9 @@ class OpenAICompatibleSession:
 
 def test_connection(cfg: ProviderConfig) -> str:
     """Prueba rapida del proveedor (boton "Probar conexión" del frontend)."""
+    if cfg.kind == PROVIDER_TRAINED:
+        from app.services import trained_model
+        return f"servidor del modelo: {trained_model.health()}"
     s = open_session(cfg)
     turn = s.start("Respondé en una sola palabra.", "Decí: ok", tools=None)
     return (turn.text or "").strip()[:80]

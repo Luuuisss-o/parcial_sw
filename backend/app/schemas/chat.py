@@ -86,6 +86,9 @@ class DeviceAnswerIn(BaseModel):
     content: Optional[str] = Field(None, max_length=MAX_CHAT_LEN)
     error: Optional[str] = Field(None, max_length=1000)
     actions: Optional[list] = None
+    # Cambios que el modelo del celular PROPONE como asesor (no los aplico):
+    # el servidor los valida y, si el diagrama lo permite, quedan como propuesta.
+    proposed_actions: Optional[list] = None
     ai_mode: Optional[str] = Field(None, pattern="^(AUTO|MENTOR)$")
     model_label: Optional[str] = Field(None, max_length=200)
 

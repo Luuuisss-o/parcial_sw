@@ -364,6 +364,10 @@ def run_command(db, diagram: Diagram, user_text: str, requester: Requester | Non
     ver llm_providers.py). Por defecto, el configurado para el diagrama."""
     mode = mode or classify_intent(user_text)
     cfg = provider or llm_providers.config_for(diagram)
+    if cfg.kind == llm_providers.PROVIDER_TRAINED:
+        from app.services import trained_model
+        return trained_model.run(db, diagram, user_text, requester, history, team_context, mode,
+                                 solutions_enabled, proposals_enabled, cfg.label)
     result = _run(db, diagram, user_text, requester, history, team_context, mode, solutions_enabled, cfg,
                   proposals_enabled=proposals_enabled)
     result.model_label = cfg.label

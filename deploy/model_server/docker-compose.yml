@@ -1,0 +1,22 @@
+# Servidor del modelo PROPIO del equipo (Gemma 3 1B ajustado, GGUF) con
+# llama.cpp. Corre en una EC2 aparte; solo el servidor principal llega al
+# puerto 8080 (regla del security group) y ademas exige LOCAL_MODEL_API_KEY.
+# El backend le habla en backend/app/services/trained_model.py.
+services:
+  llama:
+    # Version fija: una actualizacion de llama.cpp no cambia el servidor sola.
+    image: ghcr.io/ggml-org/llama.cpp:server-b12242
+    container_name: modelo-propio
+    restart: unless-stopped
+    command: [
+      "-m", "/models/assistant.gguf",
+      "--host", "0.0.0.0", "--port", "8080",
+      "-c", "4096",          # el prompt del equipo mide ~800-1700 tokens
+      "-t", "2",             # t3.medium: 2 vCPU
+      "--alias", "gemma-3-1b-equipo",
+      "--api-key", "${LOCAL_MODEL_API_KEY}",
+    ]
+    volumes:
+      - ./models:/models:ro
+    ports:
+      - "8080:8080"

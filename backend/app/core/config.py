@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     AI_API_KEY: str = ""
     # Donde se aloja el modelo personalizado que descarga el celular.
     MODELS_DIR: str = "data/models"
+    # Modelo PROPIO del equipo servido con llama.cpp en otra instancia
+    # (deploy/model_server). Vacio = no disponible como proveedor.
+    LOCAL_MODEL_URL: str = ""
+    LOCAL_MODEL_API_KEY: str = ""
+    LOCAL_MODEL_LABEL: str = "Gemma 3 1B propio del equipo"
+    # Token con el que el servidor del modelo descarga las versiones nuevas
+    # (GET /models/assistant[/download]) sin una cuenta de usuario.
+    MODEL_SYNC_TOKEN: str = ""
 
     class Config:
         env_file = ".env"
