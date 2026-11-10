@@ -66,7 +66,23 @@ Se agregó en este parcial:
 | “IA configurable” | Modo **a demanda** (responde cuando se la consulta), activable por el dueño, con propuestas activables. **No** se implementaron sugerencias espontáneas: el plan las marca como opcionales y, si se agregan, deben ser opt-in y sin edición automática. |
 | “Dar soluciones” | Dos caminos separados: la IA de edición ejecuta órdenes explícitas (“creá la clase X”, primer parcial); el asesor **propone** y un humano aplica. La entrega de soluciones completas sigue siendo configurable (Fase 2). |
 | Quién aplica una propuesta | Quien hizo la consulta o el dueño del diagrama. El resto la ve, pero no la decide. |
-| Modelo local para el editor | No obligatorio. El dueño puede apuntar el asesor a un modelo propio (Ollama, LM Studio, vLLM o Colab) con API compatible con OpenAI; por defecto, Gemini. |
+| Modelo local para el editor | No obligatorio, pero **implementado**: el dueño elige *Modelo propio del equipo* (Gemma 3 1B entrenado, servido con llama.cpp en un servidor propio) o cualquier servidor compatible con OpenAI; por defecto, Gemini. |
+
+## IA local del equipo (modelo propio en el servidor)
+
+- **Modelo:** Gemma 3 1B (`unsloth/gemma-3-1b-it`) ajustado con LoRA en Colab con datos del
+  proyecto (`training/`), exportado a GGUF Q4_K_M (0,8 GB).
+- **Dataset v2 (asesor):** 1513 ejemplos de entrenamiento y 131 de evaluación; agrega revisiones
+  con propuesta, multiplicidades en el prompt y corrige la dirección de agregación/composición.
+- **Servidor:** llama.cpp en una EC2 aparte (`deploy/model_server`), accesible solo desde el
+  backend y con clave; se actualiza solo cuando se publica un modelo nuevo desde Colab.
+- **Backend:** proveedor `trained` (`services/trained_model.py`) con el **mismo prompt del
+  entrenamiento** (`training/prompt_contract.py`): ejecuta las ediciones y deja como propuesta
+  lo que recomienda como asesor.
+- **Medido** con el modelo real en 2 CPU: edición 6 s, revisión 5 s; pruebas
+  `tests/test_modelo_propio.py` (7).
+- El mismo modelo corre también en el celular (primer parcial), que ahora también deja
+  propuestas como asesor.
 
 ## Limitaciones conocidas
 
@@ -97,4 +113,6 @@ llega dirigida a quien preguntó con una propuesta que esa persona (o el dueño)
 ## Pendiente
 
 1. Desplegar en producción (backend con la migración nueva y web).
-2. Generar e instalar el APK con el ajuste del chat cuando el asesor está desactivado.
+2. Crear la EC2 del modelo y conectarla (`deploy/model_server/README.md`).
+3. Entrenar la versión v2 en Colab y publicarla (la EC2 del modelo y los celulares la toman solos).
+4. Generar e instalar el APK nuevo (prompt v2 y propuestas del asesor desde el celular).
