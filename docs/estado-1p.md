@@ -13,7 +13,7 @@ revisión de código. Lo que no se pudo ejecutar figura como **PENDIENTE**.
 | CU-03 | Edición colaborativa en tiempo real | **COMPLETA** | Prueba de 3 usuarios (21/21); exclusión mutua por clase; navegador real: pestaña quieta >100 s y reconexión (5/5) |
 | CU-04 | IA de edición por texto y voz | **COMPLETA** | Gemini real (`RUN_GEMINI_TESTS=1`); confirmación de eliminaciones (`test_ai_confirmacion.py`); voz en el celular probada en un Samsung A34 |
 | CU-05 | Foto → diagrama | **COMPLETA** (ver limitación) | Imagen de un diagrama → Gemini Vision → vista previa → diagrama con 2 clases, 4 atributos y la relación |
-| CU-06 | Importar/exportar XMI (Enterprise Architect) | **PARCIAL** — falta abrirlo en EA | Ida y vuelta automática sin pérdida (`test_xmi_roundtrip.py`); **PENDIENTE**: validar en Enterprise Architect |
+| CU-06 | Importar/exportar XMI (Enterprise Architect) | **COMPLETA** | Validado en Enterprise Architect 17.2 en las dos direcciones (editor → EA → editor idéntico); pruebas con archivos reales de EA |
 | CU-07 | Generar backend Spring Boot + PostgreSQL | **COMPLETA** | Proyecto generado → Maven → Docker con PostgreSQL → CRUD real 25/25 y diagrama con todos los tipos de relación |
 | CU-08 | App móvil por voz contra el backend generado | **COMPLETA** | Protocolo UAP del backend generado (alta/consulta); pantallas de voz del celular |
 | CU-09 | IA local en el celular, offline y sincronización | **COMPLETA** | Modelo propio en el teléfono (25–51 s/respuesta); alta reenviada sin duplicar, también tras reiniciar el backend |
@@ -43,9 +43,19 @@ revisión de código. Lo que no se pudo ejecutar figura como **PENDIENTE**.
 
 ### CU-06 — XMI
 - `services/xmi.py`: XMI 2.1, perfil UML 2.1, identificadores estables por id de la base, `generalization` para herencia y `ownedEnd` con `aggregation` para composición/agregación.
-- **Corregido:** `Double`, `decimal` y `Long` se exportaban como el primitivo genérico `Real`/`Integer` y volvían como `float`/`int` (el backend generado perdía precisión). Ahora viajan como `uml:DataType` propios. Lo mismo para el tipo de retorno de los métodos.
-- Prueba automática: ida y vuelta (exportar → importar en un diagrama vacío) conserva clases, atributos con su tipo, herencia, composición y multiplicidades.
-- **PENDIENTE:** abrir el XMI exportado en Enterprise Architect (`Publish → Import/Export Package from XMI`) e importar un XMI exportado por EA. No hay EA en este entorno. Pasos y archivo de ejemplo listos en `docs/xmi/VALIDAR_EN_EA.md` y `docs/xmi/ejemplo-completo.xmi` (10 clases con herencia, composición, agregación, relación recursiva y multiplicidades).
+- **Validado en Enterprise Architect 17.2** (automatizado por su interfaz COM): el XMI del editor (`docs/xmi/ejemplo-completo.xmi`, 10 clases con herencia, composición, agregación, dependencia, relación recursiva, 1:1, N:M y atributos `Date`/`Double`/`BigDecimal`/`Long`/`LocalDateTime`) se importa en EA con todo correcto; EA lo vuelve a exportar (`docs/xmi/exportado-desde-ea.xmi`) y el editor lo importa en un diagrama vacío **idéntico** al original (clases, atributos y tipos, relaciones con su dirección y multiplicidades).
+- **Problemas reales que encontró EA, corregidos:**
+
+| Problema | En EA | Corrección |
+|---|---|---|
+| Marca de composición/agregación en el extremo equivocado | rombo dibujado en la clase opuesta | va en el extremo de la parte (como dice UML y como exporta EA) |
+| Tipos `Date`, `Double`, `Long`, `BigDecimal`… | atributos sin tipo; `BigDecimal` como `String` | `uml:DataType` con su nombre, referenciado con el atributo `type` |
+| Orden de los extremos | asociaciones con la dirección invertida | orden de `memberEnd` que EA interpreta como origen → destino |
+| Importar archivos de EA | tipos perdidos (EA los guarda en su extensión) y algunas asociaciones invertidas | se leen el tipo y la dirección de la extensión de EA |
+| `Double`/`decimal`/`Long` en la ida y vuelta propia | volvían como `float`/`int` | tipo exacto |
+
+- Pruebas: `tests/unit/test_xmi_enterprise_architect.py` (con XMI reales exportados por EA en `tests/fixtures/xmi/`) y `tests/test_xmi_roundtrip.py`.
+- Para repetir la validación a mano: `docs/xmi/VALIDAR_EN_EA.md`.
 
 ### CU-07 — Backend generado
 Pipeline: `exporters/generators/project_builder.py` → entidades JPA (`json_to_full_orm.py`), repositorios, **capa de API** (`api_layer.py`: DTO + Service + Controller + manejo de errores), protocolo UAP, Postman, Docker.
@@ -95,10 +105,9 @@ cd mobile && flutter test
 flutter test test/integration --dart-define=API_BASE_URL=http://127.0.0.1:8000   # con el seed demo cargado
 ```
 
-Resultado al cerrar esta auditoría: backend 101/101 (con Gemini real), generador 88/88, móvil 133/133
+Resultado al cerrar esta auditoría: backend 104/104 (con Gemini real), generador 88/88, móvil 133/133
 (incluidas 3 de integración contra el backend), web compila sin errores.
 
 ## Pendientes
-1. **Validar el XMI en Enterprise Architect** (CU-06), en las dos direcciones.
-2. Desplegar en el servidor de producción los cambios de esta auditoría (backend y web).
-3. Generar e instalar el APK con la regla de confirmación de eliminaciones en el celular.
+1. Desplegar en el servidor de producción los cambios de esta auditoría (backend y web).
+2. Generar e instalar el APK con la regla de confirmación de eliminaciones en el celular.

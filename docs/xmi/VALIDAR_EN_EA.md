@@ -1,8 +1,9 @@
 # Validar el XMI en Enterprise Architect (CU-06)
 
-Es la única verificación del primer parcial que no se pudo automatizar: hace falta tener
-Enterprise Architect instalado. Toma unos 5 minutos. Anotá el resultado de cada paso en
-`docs/estado-1p.md` (CU-06).
+Validado el 9/11/2026 con Enterprise Architect 17.2 (de forma automatizada, por su interfaz
+COM): todos los puntos de abajo dieron bien en las dos direcciones. `exportado-desde-ea.xmi` es
+el archivo que exportó EA en esa prueba. Esta guía queda para repetir la verificación a mano
+(toma unos 5 minutos).
 
 ## A. Del editor a EA
 
@@ -13,10 +14,10 @@ Enterprise Architect instalado. Toma unos 5 minutos. Anotá el resultado de cada
 3. Verificar en el paquete importado:
    - [ ] 10 clases: Persona, Cliente, Empleado, Pedido, DetallePedido, Producto, Categoria,
          Proveedor, Direccion, Factura.
-   - [ ] Atributos con su tipo (ej. `Persona.nombre: String`, `Pedido.fecha: Date`,
-         `Empleado.sueldo: Double`, `DetallePedido.cantidad: Integer`).
+   - [ ] Atributos con su tipo (ej. `Pedido.fecha: Date`, `Pedido.total: BigDecimal`,
+         `Empleado.sueldo: Double`, `Producto.codigo: Long`, `Factura.emitida: LocalDateTime`).
    - [ ] Herencia: `Cliente` y `Empleado` generalizan a `Persona`.
-   - [ ] Una composición (rombo lleno) y una agregación (rombo vacío).
+   - [ ] Una composición (rombo lleno en `Pedido`) y una agregación (rombo vacío en `Proveedor`).
    - [ ] La asociación recursiva de `Categoria` consigo misma.
    - [ ] Multiplicidades en los extremos (ej. `1` y `0..*` entre Cliente y Pedido).
 4. Para ver las clases dibujadas: arrastrarlas a un diagrama de clases nuevo (el XMI trae el
@@ -25,7 +26,7 @@ Enterprise Architect instalado. Toma unos 5 minutos. Anotá el resultado de cada
 ## B. De EA al editor
 
 1. En EA, seleccionar el paquete y **Publish → Import/Export → Export Package to XMI**, con
-   *XMI Type* = **UML 2.1 (XMI 2.1)**. Guardarlo como `docs/xmi/exportado-desde-ea.xmi`.
+   *XMI Type* = **UML 2.1 (XMI 2.1)**.
 2. En el editor web: crear un diagrama vacío, abrirlo y, en la barra de arriba, tocar el ícono
    de **subir** ("Importar un diagrama desde un archivo .xmi") y elegir ese archivo.
 3. Verificar que aparecen las mismas clases, atributos, herencias, composición/agregación y
