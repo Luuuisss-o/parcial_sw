@@ -39,15 +39,24 @@ _TO_UML_PRIMITIVE = {
     "boolean": "Boolean", "bool": "Boolean",
     "string": "String", "text": "String", "uuid": "String", "email": "String",
 }
-# Tipos sin primitivo UML exacto: se declaran como uml:DataType propios
-# dentro del mismo archivo, asi el XMI queda autocontenido. double, decimal
-# y long estaban mapeados a los primitivos Real/Integer y en la ida y vuelta
-# volvian como float/int: el backend generado pasaba de Double/BigDecimal/
-# Long a Float/Integer (perdida de precision). Ver tests/test_xmi_roundtrip.py.
+# Cualquier otro tipo (Date, Double, BigDecimal, LocalDateTime, Long...) se
+# declara como uml:DataType propio con su nombre, dentro del mismo archivo.
+# Antes double/decimal/long se mapeaban a los primitivos Real/Integer y
+# volvian como float/int (el backend generado perdia precision), y los
+# tipos desconocidos se exportaban como String. Nombres canonicos para los
+# alias en minuscula; el resto conserva el nombre tal cual lo escribio el
+# usuario.
 _LOCAL_DATATYPES = {
     "date": "Date", "datetime": "DateTime",
     "double": "Double", "decimal": "Decimal", "long": "Long",
 }
+
+
+def _datatype_ref(tipo: str, used: dict[str, str]) -> str:
+    """Registra el DataType de `tipo` y devuelve su xmi:id."""
+    key = tipo.strip().lower()
+    used.setdefault(key, _LOCAL_DATATYPES.get(key, tipo.strip()))
+    return "DT_" + "".join(ch if ch.isalnum() else "_" for ch in key)
 
 # Vuelta: nombre de primitivo/datatype UML (en minuscula) -> tipo interno.
 # Escrito explicito, no derivado de _TO_UML_PRIMITIVE: ese dict tiene varias
@@ -84,7 +93,7 @@ def build_xmi(diagram) -> bytes:
     })
 
     class_ids = {c.id: f"C_{c.id}" for c in diagram.classes}
-    used_datatypes: set[str] = set()
+    used_datatypes: dict[str, str] = {}  # clave en minuscula -> nombre del DataType
 
     for c in diagram.classes:
         el = ET.SubElement(model, "packagedElement", {
@@ -102,24 +111,18 @@ def build_xmi(diagram) -> bytes:
             if a.requerido:
                 attr_el.set("isNullable", "false")
 
-            tipo = (a.tipo or "string").strip().lower()
-            if tipo in _TO_UML_PRIMITIVE:
+            tipo = (a.tipo or "string").strip()
+            if tipo.lower() in _TO_UML_PRIMITIVE:
                 ET.SubElement(attr_el, "type", {
                     f"{{{XMI_NS}}}type": "uml:PrimitiveType",
-                    "href": _PRIMITIVE_HREF.format(name=_TO_UML_PRIMITIVE[tipo]),
-                })
-            elif tipo in _LOCAL_DATATYPES:
-                used_datatypes.add(tipo)
-                ET.SubElement(attr_el, "type", {
-                    f"{{{XMI_NS}}}idref": f"DT_{tipo}",
+                    "href": _PRIMITIVE_HREF.format(name=_TO_UML_PRIMITIVE[tipo.lower()]),
                 })
             else:
-                # Tipo que no conocemos (ej. uno inventado a mano): lo
-                # exportamos igual, como String, para no perder el atributo.
-                ET.SubElement(attr_el, "type", {
-                    f"{{{XMI_NS}}}type": "uml:PrimitiveType",
-                    "href": _PRIMITIVE_HREF.format(name="String"),
-                })
+                # Referencia como atributo `type` (no como hijo <type
+                # xmi:idref>): Enterprise Architect solo vincula el atributo
+                # al DataType de esta forma; con el hijo lo importaba sin tipo
+                # (verificado con EA 17.2).
+                attr_el.set("type", _datatype_ref(tipo, used_datatypes))
 
         for m in c.metodos:
             op_el = ET.SubElement(el, "ownedOperation", {
@@ -141,16 +144,14 @@ def build_xmi(diagram) -> bytes:
                     "name": "return",
                     "direction": "return",
                 })
-                if ret in _LOCAL_DATATYPES:
-                    # Mismo tratamiento que los atributos (antes un metodo que
-                    # devolvia date/double se exportaba como String).
-                    used_datatypes.add(ret)
-                    ET.SubElement(param_el, "type", {f"{{{XMI_NS}}}idref": f"DT_{ret}"})
-                else:
+                if ret in _TO_UML_PRIMITIVE:
                     ET.SubElement(param_el, "type", {
                         f"{{{XMI_NS}}}type": "uml:PrimitiveType",
-                        "href": _PRIMITIVE_HREF.format(name=_TO_UML_PRIMITIVE.get(ret, "String")),
+                        "href": _PRIMITIVE_HREF.format(name=_TO_UML_PRIMITIVE[ret]),
                     })
+                else:
+                    # Igual que los atributos (antes date/double -> String).
+                    param_el.set("type", _datatype_ref(m.tipo_retorno, used_datatypes))
 
         # Herencia: generalization vive DENTRO del elemento hijo (origen).
         for r in c.outgoing_relations:
@@ -160,13 +161,14 @@ def build_xmi(diagram) -> bytes:
                     "general": class_ids[r.destino_id],
                 })
 
-    # DataTypes locales, solo si algun atributo los usa.
-    for tipo in sorted(used_datatypes):
-        ET.SubElement(model, "packagedElement", {
+    # DataTypes usados, al principio del modelo (definidos antes de usarse).
+    for i, (key, name) in enumerate(sorted(used_datatypes.items())):
+        dt = ET.Element("packagedElement", {
             f"{{{XMI_NS}}}type": "uml:DataType",
-            f"{{{XMI_NS}}}id": f"DT_{tipo}",
-            "name": _LOCAL_DATATYPES[tipo],
+            f"{{{XMI_NS}}}id": "DT_" + "".join(ch if ch.isalnum() else "_" for ch in key),
+            "name": name,
         })
+        model.insert(i, dt)
 
     # Resto de las relaciones (asociacion / agregacion / composicion / dependencia).
     for r in diagram.relations:
@@ -188,14 +190,24 @@ def build_xmi(diagram) -> bytes:
             f"{{{XMI_NS}}}id": f"AS_{r.id}",
             **({"name": r.etiqueta} if r.etiqueta else {}),
         })
-        ET.SubElement(assoc, "memberEnd", {f"{{{XMI_NS}}}idref": f"E1_{r.id}"})
+        # Orden de memberEnd: destino, origen. Enterprise Architect toma el
+        # primer memberEnd como destino del conector; en el orden inverso
+        # importaba las asociaciones al reves (Pedido -> Cliente en vez de
+        # Cliente -> Pedido). Verificado con EA 17.2. Los ownedEnd siguen en
+        # orden origen, destino (es lo que lee parse_xmi).
         ET.SubElement(assoc, "memberEnd", {f"{{{XMI_NS}}}idref": f"E2_{r.id}"})
+        ET.SubElement(assoc, "memberEnd", {f"{{{XMI_NS}}}idref": f"E1_{r.id}"})
 
+        # UML: aggregation="shared"/"composite" va en el extremo cuyo tipo es
+        # la PARTE, y el rombo se dibuja en el opuesto (el todo). En el editor
+        # la parte es el origen y el todo el destino (rombo en el destino).
+        # Antes iba en el destino y Enterprise Architect dibujaba el rombo en
+        # la clase equivocada (verificado importando en EA 17.2).
         end1 = ET.SubElement(assoc, "ownedEnd", {
             f"{{{XMI_NS}}}type": "uml:Property",
             f"{{{XMI_NS}}}id": f"E1_{r.id}",
             "type": class_ids[r.origen_id],
-            "aggregation": "none",
+            "aggregation": _AGGREGATION_BY_TYPE.get(r.tipo, "none"),
         })
         ET.SubElement(end1, "lowerValue", {f"{{{XMI_NS}}}type": "uml:LiteralInteger", "value": _mult(r.mult_origen_min)})
         ET.SubElement(end1, "upperValue", {f"{{{XMI_NS}}}type": "uml:LiteralUnlimitedNatural", "value": _mult(r.mult_origen_max)})
@@ -204,7 +216,7 @@ def build_xmi(diagram) -> bytes:
             f"{{{XMI_NS}}}type": "uml:Property",
             f"{{{XMI_NS}}}id": f"E2_{r.id}",
             "type": class_ids[r.destino_id],
-            "aggregation": _AGGREGATION_BY_TYPE.get(r.tipo, "none"),
+            "aggregation": "none",
         })
         ET.SubElement(end2, "lowerValue", {f"{{{XMI_NS}}}type": "uml:LiteralInteger", "value": _mult(r.mult_destino_min)})
         ET.SubElement(end2, "upperValue", {f"{{{XMI_NS}}}type": "uml:LiteralUnlimitedNatural", "value": _mult(r.mult_destino_max)})
@@ -305,12 +317,25 @@ def _resolve_type_name(attr_el: ET.Element, by_id: dict[str, ET.Element]) -> str
                 raw = idref
     if not raw:
         raw = attr_el.get("type")
+        if raw and raw in by_id:  # type="DT_..." -> el DataType del archivo
+            raw = by_id[raw].get("name")
 
     if not raw:
         return "string"
+    return _normalize_type(raw)
 
-    key = raw.strip().lower()
-    return _FROM_UML_PRIMITIVE.get(key) or _FROM_LOCAL_DATATYPE.get(key) or "string"
+
+def _normalize_type(raw: str) -> str:
+    """Nombre de tipo del XMI -> tipo del editor. Los conocidos se
+    normalizan; los demas (BigDecimal, LocalDateTime...) se conservan tal
+    cual en vez de perderse como string. Quita los prefijos de EA
+    (EAJava_double -> double)."""
+    raw = raw.strip()
+    for prefix in ("EAJava_", "EAnone_"):
+        if raw.startswith(prefix):
+            raw = raw[len(prefix):]
+    key = raw.lower()
+    return _FROM_UML_PRIMITIVE.get(key) or _FROM_LOCAL_DATATYPE.get(key) or raw
 
 
 def _resolve_return_type(op_el: ET.Element, by_id: dict[str, ET.Element]) -> str:
@@ -324,6 +349,8 @@ def _resolve_return_type(op_el: ET.Element, by_id: dict[str, ET.Element]) -> str
         if param_el.get("direction") != "return":
             continue
         raw = param_el.get("type")
+        if raw and raw in by_id:  # type="DT_..." -> el DataType del archivo
+            raw = by_id[raw].get("name")
         if not raw:
             type_el = None
             for child in param_el:
@@ -363,6 +390,19 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
     classes_by_id: dict[str, ImportedClass] = {}
     name_by_id: dict[str, str] = {}
 
+    # Tipo real de cada atributo segun la extension de Enterprise Architect
+    # (xmi:Extension/.../attribute/properties@type). EA no pone Date, Double,
+    # BigDecimal... en la parte UML (los deja sin <type>, y Long lo convierte
+    # en UnlimitedNatural): sin esto llegaban como string.
+    ext_attr_types: dict[str, str] = {}
+    for el in tree.iter():
+        if _local(el.tag) != "attribute":
+            continue
+        ref = next((v for k, v in el.attrib.items() if _local(k) == "idref"), None)
+        props = next((c for c in el if _local(c.tag) == "properties"), None)
+        if ref and props is not None and props.get("type"):
+            ext_attr_types[ref] = props.get("type")
+
     # --- Clases + atributos ---
     # EA representa una clase de asociacion (UML 2.5: la relacion
     # muchos-a-muchos vista como clase propia) con xmi:type="uml:AssociationClass"
@@ -390,7 +430,8 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
             required = attr_el.get("isNullable") == "false" or attr_el.get("required") == "true"
             ic.attributes.append(ImportedAttribute(
                 name=attr_name,
-                type=_resolve_type_name(attr_el, by_id),
+                type=(_normalize_type(ext_attr_types[_xmi_id(attr_el)]) if _xmi_id(attr_el) in ext_attr_types
+                      else _resolve_type_name(attr_el, by_id)),
                 required=required,
             ))
         for op_el in el:
@@ -473,6 +514,28 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
             if conn_id and class_name:
                 association_class_name[conn_id] = class_name
 
+    # Direccion de cada conector segun Enterprise Architect
+    # (xmi:Extension/connectors/connector/source|target): en sus archivos
+    # el orden de los extremos de uml:Association no indica cual es el
+    # origen, y sin esto algunas asociaciones volvian invertidas.
+    # (clase de origen, clase de destino, multiplicidad del origen); la
+    # multiplicidad desempata las asociaciones recursivas (mismo tipo en
+    # los dos extremos).
+    ea_direction: dict[str, tuple[str, str, str | None]] = {}
+    for el in tree.iter():
+        if _local(el.tag) != "connector":
+            continue
+        conn_id = next((v for k, v in el.attrib.items() if _local(k) == "idref"), None)
+        ends_ids, source_mult = {}, None
+        for child in el:
+            if _local(child.tag) in ("source", "target"):
+                ends_ids[_local(child.tag)] = next((v for k, v in child.attrib.items() if _local(k) == "idref"), None)
+                if _local(child.tag) == "source":
+                    t = next((g for g in child if _local(g.tag) == "type"), None)
+                    source_mult = t.get("multiplicity") if t is not None else None
+        if conn_id and ends_ids.get("source") and ends_ids.get("target"):
+            ea_direction[conn_id] = (ends_ids["source"], ends_ids["target"], source_mult)
+
     # --- Asociaciones (incluye agregacion/composicion via aggregation="shared"/"composite") ---
     # uml:AssociationClass se procesa en el MISMO bucle que uml:Association:
     # a diferencia de lo que sugeria la extension de EA (el atributo
@@ -522,6 +585,34 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
                     hi = None if v in ("*", "-1") else int(v) if v.isdigit() else 1
             return lo, hi
 
+        # El extremo marcado con aggregation es el de la PARTE (UML, y asi lo
+        # escribe EA); en el editor la parte es el origen. Sin marca, se
+        # respeta el orden del archivo.
+        def _end_type_id(end: ET.Element) -> str | None:
+            if end.get("type"):
+                return end.get("type")
+            for child in end:
+                if _local(child.tag) == "type":
+                    return child.get(f"{{{XMI_NS}}}idref") or child.get("href", "").rsplit("#", 1)[-1]
+            return None
+
+        agg_ends = [e for e in ends if e.get("aggregation", "none") != "none"]
+        if agg_ends:
+            part = agg_ends[0]
+            ends = [part, ends[1] if ends[0] is part else ends[0]]
+        elif _xmi_id(el) in ea_direction:
+            source_id, target_id, source_mult = ea_direction[_xmi_id(el)]
+            if source_id != target_id:
+                if _end_type_id(ends[1]) == source_id and _end_type_id(ends[0]) != source_id:
+                    ends = [ends[1], ends[0]]
+            elif source_mult:
+                def _mult_text(end):
+                    lo, hi = _end_mult(end)
+                    return f"{lo}..{'*' if hi is None else hi}"
+                if _mult_text(ends[0]) != source_mult and _mult_text(ends[1]) == source_mult:
+                    ends = [ends[1], ends[0]]
+        agg = ends[0].get("aggregation", "none")
+
         src_name = _end_class_name(ends[0])
         dst_name = _end_class_name(ends[1])
         if not src_name or not dst_name:
@@ -530,7 +621,6 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
             )
             continue
 
-        agg = ends[1].get("aggregation", "none")
         rel_type = _TYPE_BY_AGGREGATION.get(agg, RelType.ASSOCIATION).value
         src_min, src_max = _end_mult(ends[0])
         dst_min, dst_max = _end_mult(ends[1])
