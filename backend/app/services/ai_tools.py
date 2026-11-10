@@ -141,6 +141,10 @@ class DiagramToolExecutor:
                 "destino": r.destino.nombre,
                 "tipo": r.tipo.value,
                 "etiqueta": r.etiqueta,
+                # Multiplicidades: sin ellas el asesor no puede opinar sobre
+                # la cardinalidad del modelo (CU-05 del segundo parcial).
+                "mult_origen": _fmt_mult(r.mult_origen_min, r.mult_origen_max),
+                "mult_destino": _fmt_mult(r.mult_destino_min, r.mult_destino_max),
             }
             for r in rels
         ]
@@ -388,6 +392,14 @@ class DiagramToolExecutor:
         return {"ok": True, "origen": src.nombre, "destino": dst.nombre}
 
 
+def _fmt_mult(lo: Optional[int], hi: Optional[int]) -> str:
+    """(1, None) -> '1..*'; (1, 1) -> '1'; (0, 1) -> '0..1'."""
+    lo = 1 if lo is None else lo
+    if hi is None:
+        return "*" if lo == 0 else f"{lo}..*"
+    return str(lo) if lo == hi else f"{lo}..{hi}"
+
+
 def _parse_multiplicity(value: Optional[str]) -> tuple[int, Optional[int]]:
     """Convierte '0..1' / '1' / '1..*' / '*' -> (min, max) donde max=None significa '*'."""
     if not value:
@@ -570,17 +582,7 @@ TOOLS: list[dict[str, Any]] = [
 ]
 
 
-# Formato OpenAI "chat completions" (lo hablan Ollama, LM Studio, vLLM,
-# llama.cpp server y el endpoint OpenAI-compatible de Gemini): cada tool va
-# envuelta en {"type": "function", "function": {...}}.
-OPENAI_TOOLS: list[dict[str, Any]] = [
-    {
-        "type": "function",
-        "function": {
-            "name": t["name"],
-            "description": t["description"],
-            "parameters": t["input_schema"],
-        },
-    }
-    for t in _RAW_TOOLS
-]
+def as_gemini_tools(raw_tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Definiciones crudas (input_schema) -> formato de google-genai."""
+    return [{"type": "function", "name": t["name"], "description": t["description"],
+             "parameters": t["input_schema"]} for t in raw_tools]

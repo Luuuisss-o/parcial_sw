@@ -42,6 +42,12 @@ class Diagram(Base):
     ai_model: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     ai_api_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
+    # Segundo parcial (CU-08): el dueño decide si el asesor participa
+    # (respondiendo a "@IA") y si puede proponer cambios al diagrama. Las
+    # propuestas nunca se aplican solas: ver AiProposal.
+    ai_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    ai_proposals_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+
     # Relaciones
     owner: Mapped["User"] = relationship()
     classes: Mapped[List["Clase"]] = relationship(back_populates="diagram", cascade="all, delete-orphan", passive_deletes=True)

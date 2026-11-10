@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.chat import ChatRole
 
@@ -27,6 +27,31 @@ class ChatMessageIn(BaseModel):
         return v
 
 
+class ProposalOut(BaseModel):
+    """Propuesta del asesor (segundo parcial). `changes` es el texto legible
+    de cada operacion, para mostrar el impacto antes de aceptarla."""
+    id: UUID
+    message_id: Optional[UUID] = None
+    status: str  # proposed | applying | applied | rejected | stale | failed
+    summary: str
+    operations: list
+    changes: List[str]
+    requested_by_id: Optional[int] = None
+    requested_by_name: Optional[str] = None
+    requested_by_email: Optional[str] = None
+    decided_by_name: Optional[str] = None
+    decided_at: Optional[datetime] = None
+    result: Optional[list] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_orm(cls, v):
+        if hasattr(v, "operations") and not isinstance(v, dict):
+            from app.services.ai_proposals import payload
+            return payload(v)
+        return v
+
+
 class ChatMessageOut(BaseModel):
     id: UUID
     diagram_id: UUID
@@ -44,6 +69,8 @@ class ChatMessageOut(BaseModel):
     actions: Optional[list] = None
     created_at: datetime
     seq: int
+    ai_status: Optional[str] = None  # solo preguntas a la IA: pending|running|completed|failed
+    proposal: Optional[ProposalOut] = None
 
     model_config = {"from_attributes": True}
 

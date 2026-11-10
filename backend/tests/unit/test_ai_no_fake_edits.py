@@ -18,7 +18,7 @@ class FakeExecutor:
         self.created = []
 
     def snapshot(self):
-        return {"classes": [], "relations": []}
+        return {"clases": [], "relaciones": []}
 
     def create_class(self, name, **kw):
         self.created.append(name)

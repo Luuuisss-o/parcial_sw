@@ -29,7 +29,8 @@ from google import genai  # noqa: F401  (los tests reemplazan genai.Client)
 from app.core.config import settings
 from app.models.uml import Diagram
 from app.services import llm_providers
-from app.services.ai_tools import CONFIRM_RE, DiagramToolExecutor, ToolError, TOOLS
+from app.services import ai_proposals
+from app.services.ai_tools import CONFIRM_RE, DiagramToolExecutor, ToolError, TOOLS, as_gemini_tools
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +233,38 @@ class AiCommandResult:
     actions: list[dict] = field(default_factory=list)
     mode: str = "AUTO"  # MODE_MENTOR si se respondio como mentor, sin herramientas
     model_label: str | None = None  # que modelo respondio (CU-17)
+    # Propuesta del asesor (segundo parcial): {"summary", "operations",
+    # "base_hash"} ya validada contra el diagrama; NO se aplico.
+    proposal: dict | None = None
+    revision: str | None = None  # revision del diagrama con la que se respondio
+
+
+# Presupuesto de contexto: un diagrama mas grande que esto se manda en forma
+# compacta (nombres y tipos, sin coordenadas) para no exceder el contexto.
+MAX_STATE_CHARS = 30000
+
+
+def compact_state(snapshot: dict) -> tuple[str, bool]:
+    """JSON del diagrama para el prompt y si hubo que compactarlo."""
+    full = json.dumps(snapshot, ensure_ascii=False)
+    if len(full) <= MAX_STATE_CHARS:
+        return full, False
+    compact = {
+        "clases": [
+            {"nombre": c["nombre"],
+             "atributos": [f"{a['nombre']}: {a['tipo']}" for a in c["atributos"]],
+             "metodos": [m["nombre"] for m in c["metodos"]]}
+            for c in snapshot["clases"]
+        ],
+        "relaciones": [
+            f"{r['origen']} {r.get('mult_origen', '')} -[{r['tipo']}]-> {r['destino']} {r.get('mult_destino', '')}"
+            for r in snapshot["relaciones"]
+        ],
+    }
+    text = json.dumps(compact, ensure_ascii=False)
+    if len(text) > MAX_STATE_CHARS:
+        text = text[:MAX_STATE_CHARS] + " ...(truncado)"
+    return text, True
 
 
 def _describe(actions: list[dict]) -> str:
@@ -267,7 +300,7 @@ class TeamMessage:
 def build_prompt(state_json: str, user_text: str, requester: Requester | None = None,
                  history: list[tuple[str, str]] | None = None,
                  team_context: list[TeamMessage] | None = None,
-                 mode: str = "auto") -> str:
+                 mode: str = "auto", proposals: bool = False, compacted: bool = False) -> str:
     """Arma el mensaje para el modelo con la memoria hibrida: quien pregunta,
     su hilo individual con la IA, la conversacion reciente del equipo y el
     estado actual del diagrama."""
@@ -277,6 +310,8 @@ def build_prompt(state_json: str, user_text: str, requester: Requester | None = 
         partes.append(f"Usuario que te consulta: {requester.name}{contacto}")
 
     partes.append(f"[Contexto global] Estado actual del diagrama (JSON):\n{state_json}")
+    if compacted:
+        partes.append("(El diagrama es grande: se envio en forma compacta, sin coordenadas.)")
 
     if team_context:
         lineas = ["[Contexto global] Conversacion reciente del equipo en el chat (de la mas vieja a la mas nueva):"]
@@ -297,6 +332,14 @@ def build_prompt(state_json: str, user_text: str, requester: Requester | None = 
 
     if mode == MODE_MENTOR:
         partes.append(
+            "Esta consulta es teorica/conceptual o de revision: responde como mentor "
+            "y desarrollador senior, sin modificar el diagrama. Explica tu diagnostico "
+            "y recomendacion en texto. Si recomendas crear o cambiar algo concreto sobre "
+            "clases REALES del diagrama (una relacion, una multiplicidad, un atributo "
+            "faltante), SIEMPRE registralo ademas con la herramienta propose_changes: "
+            "queda como PROPUESTA que el equipo acepta o rechaza con un boton. Nunca "
+            "digas que aplicaste un cambio: como mucho, que lo dejaste propuesto."
+            if proposals else
             "Esta consulta es teorica/conceptual: responde como mentor, sin "
             "modificar el diagrama (en este turno no tenes herramientas)."
         )
@@ -309,7 +352,8 @@ def run_command(db, diagram: Diagram, user_text: str, requester: Requester | Non
                 history: list[tuple[str, str]] | None = None,
                 team_context: list[TeamMessage] | None = None,
                 mode: str | None = None, solutions_enabled: bool = False,
-                provider: llm_providers.ProviderConfig | None = None) -> AiCommandResult:
+                provider: llm_providers.ProviderConfig | None = None,
+                proposals_enabled: bool = False) -> AiCommandResult:
     """Responde una consulta. `mode`:
       - MODE_MENTOR: pregunta teorica -> se llama al modelo SIN herramientas,
         asi es imposible que modifique el diagrama.
@@ -320,34 +364,126 @@ def run_command(db, diagram: Diagram, user_text: str, requester: Requester | Non
     ver llm_providers.py). Por defecto, el configurado para el diagrama."""
     mode = mode or classify_intent(user_text)
     cfg = provider or llm_providers.config_for(diagram)
-    result = _run(db, diagram, user_text, requester, history, team_context, mode, solutions_enabled, cfg)
+    result = _run(db, diagram, user_text, requester, history, team_context, mode, solutions_enabled, cfg,
+                  proposals_enabled=proposals_enabled)
     result.model_label = cfg.label
     return result
 
 
+# El asesor dice que dejo una propuesta (sin haberla registrado).
+_CLAIMS_PROPOSAL_RE = re.compile(
+    r"(registr|dej)\w*\s+(\w+\s+){0,4}propuest|propuest\w*\s+(registrad|en el (tablero|panel|chat))",
+    re.IGNORECASE,
+)
+INSIST_ON_PROPOSAL = (
+    "Dijiste que dejaste una propuesta pero NO llamaste a propose_changes, asi que no "
+    "quedo nada registrado. Si recomendas cambios concretos, llama ahora a "
+    "propose_changes con las operaciones; si no, responde sin decir que quedo propuesta. "
+    "El usuario no ve este aviso: no pidas disculpas ni lo menciones, responde a su pregunta."
+)
+NO_PROPOSAL_NOTE = ("\n\n_(Aclaración: esta vez no quedó registrada una propuesta aplicable. "
+                    "Si querés que la deje propuesta, pedímelo de nuevo.)_")
+
+
+def _advisor_reply(session, turn, snapshot: dict, _insisted: bool = False) -> tuple[str, dict | None]:
+    """Turno del asesor: si llama a propose_changes, la propuesta se valida
+    contra el diagrama (sin ejecutar nada). Si es invalida se le devuelven
+    los errores UNA vez para que la corrija; si sigue invalida, se descarta
+    (la respuesta en texto se publica igual)."""
+    proposal = None
+    first_text = (turn.text or "").strip()
+    text = first_text
+    for _ in range(2):
+        if not turn.calls:
+            break
+        results = []
+        for call in turn.calls:
+            if call.name != "propose_changes" or proposal is not None:
+                results.append((call, json.dumps({"error": "En este turno solo podes proponer (una vez)."})))
+                continue
+            ops, errors, touched = ai_proposals.validate_operations(snapshot, call.arguments.get("operations"))
+            summary = str(call.arguments.get("summary") or "").strip()
+            if errors or not summary:
+                results.append((call, json.dumps(
+                    {"error": "Propuesta invalida, corregila", "detalles": errors or ["Falta el resumen."]},
+                    ensure_ascii=False)))
+                continue
+            proposal = {"summary": summary[:1000], "operations": ops,
+                        "base_hash": ai_proposals.touched_hash(snapshot, touched)}
+            results.append((call, json.dumps(
+                {"ok": True, "registrada": True,
+                 "nota": ("Quedo como propuesta pendiente; NO se aplico. Ahora responde en texto, "
+                          "dirigiendote a quien pregunto: tu diagnostico del diagrama actual (que "
+                          "falta o que esta mal, con las clases reales), la recomendacion y POR QUE "
+                          "(multiplicidades, integridad), en 3 a 8 lineas, y aclara que quedo como "
+                          "propuesta para que el equipo la revise y la acepte o rechace.")},
+                ensure_ascii=False)))
+        try:
+            turn = session.send_tool_results(results)
+        except Exception as e:
+            logger.warning(f"[AI ADVISOR] corte tras proponer: {e}")
+            break
+        # La respuesta final ya trae la explicacion completa (se la pide la
+        # nota del resultado); el texto previo queda solo si no hay final.
+        text = (turn.text or "").strip() or text
+    if proposal is None and _CLAIMS_PROPOSAL_RE.search(text or ""):
+        if not _insisted:
+            try:
+                retry = session.insist_on_tools(INSIST_ON_PROPOSAL)
+            except Exception as e:
+                logger.warning(f"[AI ADVISOR] fallo al insistir con la propuesta: {e}")
+                retry = None
+            if retry is not None:
+                retry_text, proposal = _advisor_reply(session, retry, snapshot, _insisted=True)
+                if proposal is not None:
+                    return retry_text or text, proposal
+        # Nunca confirmar algo que no se hizo.
+        text = (text or "") + NO_PROPOSAL_NOTE
+    if proposal is not None and not text:
+        text = "Te dejé una propuesta de cambios para revisar."
+    if proposal is not None:
+        # Anclar la respuesta al modelo real: si el texto no nombra ninguna de
+        # las clases que toca la propuesta, se agrega el detalle de los cambios.
+        names = {str(v) for op in proposal["operations"] for k, v in op["args"].items()
+                 if k in ("class_name", "from_class", "to_class", "name", "new_name")}
+        if not any(n and n.lower() in (text or "").lower() for n in names):
+            cambios = "; ".join(ai_proposals.describe(op) for op in proposal["operations"])
+            text = f"{text}\n\n**Propuesta:** {cambios}."
+    return text, proposal
+
+
 def _run(db, diagram, user_text, requester, history, team_context, mode, solutions_enabled,
-         cfg: llm_providers.ProviderConfig) -> AiCommandResult:
+         cfg: llm_providers.ProviderConfig, proposals_enabled: bool = False) -> AiCommandResult:
     session = llm_providers.open_session(cfg)  # valida la config antes de hacer nada
     # Eliminaciones con impacto (clase con contenido, varias a la vez) solo si
     # el usuario confirmo explicitamente en este mensaje (ver ai_tools).
     executor = DiagramToolExecutor(db, diagram, destructive_confirmed=bool(CONFIRM_RE.search(user_text)))
 
-    state = json.dumps(executor.snapshot(), ensure_ascii=False)
+    snapshot = executor.snapshot()
+    revision = ai_proposals.diagram_revision(snapshot)
+    state, compacted = compact_state(snapshot)
     sys_prompt = system_prompt(solutions_enabled)
+    advisor_tools = mode == MODE_MENTOR and proposals_enabled
     prompt = build_prompt(state, user_text, requester=requester, history=history,
-                          team_context=team_context, mode=mode)
+                          team_context=team_context, mode=mode,
+                          proposals=advisor_tools, compacted=compacted)
 
     actions: list[dict] = []
 
     # Primera llamada: si falla, no se ejecuto nada todavia y el error se
-    # propaga para que el chat lo muestre.
-    turn = session.start(sys_prompt, prompt, tools=None if mode == MODE_MENTOR else TOOLS)
+    # propaga para que el chat lo muestre. El asesor (MENTOR) solo recibe la
+    # herramienta de PROPONER: no tiene ninguna que modifique el diagrama.
+    if mode == MODE_MENTOR:
+        tools = as_gemini_tools([ai_proposals.PROPOSE_TOOL]) if advisor_tools else None
+    else:
+        tools = TOOLS
+    turn = session.start(sys_prompt, prompt, tools=tools)
 
     if mode == MODE_MENTOR:
+        reply, proposal = _advisor_reply(session, turn, snapshot)
         return AiCommandResult(
-            reply=turn.text
-            or "No pude armar una explicación para eso. ¿Podés reformular la pregunta?",
-            actions=[], mode=MODE_MENTOR,
+            reply=reply or "No pude armar una explicación para eso. ¿Podés reformular la pregunta?",
+            actions=[], mode=MODE_MENTOR, proposal=proposal, revision=revision,
         )
 
     # Salvaguarda contra respuestas inventadas: si el pedido trae un verbo de

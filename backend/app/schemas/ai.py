@@ -21,6 +21,9 @@ class AiCommandAccepted(BaseModel):
 class AiSettingsOut(BaseModel):
     """Configuracion de la IA en un diagrama (la ve todo el equipo).
     El token del proveedor nunca se devuelve: solo `has_api_key`."""
+    enabled: bool = True             # el asesor participa (responde a "@IA")
+    mode: str = "on_demand"          # solo responde cuando se lo consulta (no interviene solo)
+    proposals_enabled: bool = True   # puede proponer cambios (siempre requieren aceptacion)
     solutions_enabled: bool
     provider: str            # "gemini" | "openai_compatible"
     provider_is_default: bool  # True si el diagrama usa el proveedor por defecto del servidor
@@ -36,6 +39,8 @@ class AiSettingsIn(BaseModel):
     - provider: "gemini", "openai_compatible", o "default" (volver al del servidor).
     - api_key: "" lo borra; omitido, se conserva el guardado.
     """
+    enabled: Optional[bool] = None
+    proposals_enabled: Optional[bool] = None
     solutions_enabled: Optional[bool] = None
     provider: Optional[Literal["default", "gemini", "openai_compatible"]] = None
     base_url: Optional[str] = Field(None, max_length=500)

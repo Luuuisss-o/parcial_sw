@@ -28,6 +28,13 @@ async def _capture_main_loop():
     # endpoints sincronos (ej. el asistente de IA) puedan programarse en
     # el loop correcto via run_coroutine_threadsafe.
     ws_manager.main_loop = asyncio.get_running_loop()
+    # Consultas a la IA que quedaron colgadas por un reinicio: se cierran y
+    # se avisa en el chat (segundo parcial, confiabilidad del asesor).
+    from app.services.chat_service import recover_interrupted_questions
+    try:
+        recover_interrupted_questions()
+    except Exception as e:  # la base puede no estar lista en algun arranque de prueba
+        print(f"[startup] no se pudieron revisar consultas interrumpidas: {e}")
 cors_origins = ["*"] if settings.DEBUG else ALLOWED_ORIGINS
 app.add_middleware(
     CORSMiddleware,

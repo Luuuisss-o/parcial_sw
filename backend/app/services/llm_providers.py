@@ -129,9 +129,12 @@ class GeminiSession:
         return Turn(text=interaction.output_text or "", calls=calls)
 
     def start(self, system: str, prompt: str, tools: list | None) -> Turn:
-        from app.services.ai_tools import TOOLS
+        # `tools` llega en el formato de google-genai (ai_tools.TOOLS o
+        # as_gemini_tools(...)) y se usa TAL CUAL: antes se reemplazaba por el
+        # juego completo de edicion, y el asesor (que solo debe poder
+        # proponer) habria recibido herramientas que modifican el diagrama.
         self._system = system
-        self._tools = TOOLS if tools is not None else None
+        self._tools = list(tools) if tools else None
         kwargs = dict(model=self.model, input=prompt, system_instruction=system)
         if self._tools:
             kwargs["tools"] = self._tools
@@ -228,8 +231,13 @@ class OpenAICompatibleSession:
         return Turn(text=msg.get("content") or "", calls=calls)
 
     def start(self, system: str, prompt: str, tools: list | None) -> Turn:
-        from app.services.ai_tools import OPENAI_TOOLS
-        self.tools = OPENAI_TOOLS if tools is not None else None
+        # Mismo criterio que GeminiSession: se usan exactamente las
+        # herramientas recibidas (formato google-genai -> formato OpenAI).
+        self.tools = [
+            {"type": "function", "function": {"name": t["name"], "description": t["description"],
+                                              "parameters": t["parameters"]}}
+            for t in tools
+        ] if tools else None
         self.messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
         return self._post()
 

@@ -8,8 +8,10 @@ from uuid import UUID
 from app.db import get_db
 from app.core.security import get_current_user
 from app.models.user import User
+from app.models.chat import AiProposal
 from app.schemas.ai import AiCommandIn, AiCommandAccepted, AiSettingsIn, AiSettingsOut, AiTestOut
-from app.services import chat_service, llm_providers
+from app.schemas.chat import ProposalOut
+from app.services import ai_proposals, chat_service, llm_providers
 from app.utils import realtime_events
 from ._helpers import get_my_diagram
 
@@ -42,7 +44,10 @@ def ai_command(
     """
     diagram = get_my_diagram(db, me, diagram_id)  # valida permisos del usuario
     logger.info(f"[AI COMMAND] diagram_id={diagram_id}, user={me.id}, text={body.text!r}")
-
+    if not diagram.ai_enabled:
+        raise HTTPException(409, chat_service.AI_DISABLED_NOTE)
+    if chat_service.question_in_progress(db, diagram.id, me.id):
+        raise HTTPException(429, "Ya tenés una consulta a la IA en curso: esperá su respuesta antes de hacer otra.")
     question = chat_service.create_user_message(db, diagram, me, body.text.strip(), asks_ai=True)
     chat_service.publish(diagram.id, question)
     background_tasks.add_task(chat_service.run_ai_question_background, question.id)
@@ -52,6 +57,9 @@ def ai_command(
 def _settings_out(diagram) -> AiSettingsOut:
     cfg = llm_providers.config_for(diagram)
     return AiSettingsOut(
+        enabled=diagram.ai_enabled,
+        mode="on_demand",
+        proposals_enabled=diagram.ai_proposals_enabled,
         solutions_enabled=diagram.ai_solutions_enabled,
         provider=cfg.kind,
         provider_is_default=not diagram.ai_provider,
@@ -95,6 +103,10 @@ async def update_ai_settings(
 
     El cambio se avisa por WebSocket (`ai.settings`) a todos los conectados."""
     diagram = _owned(db, me, diagram_id)
+    if body.enabled is not None:
+        diagram.ai_enabled = body.enabled
+    if body.proposals_enabled is not None:
+        diagram.ai_proposals_enabled = body.proposals_enabled
     if body.solutions_enabled is not None:
         diagram.ai_solutions_enabled = body.solutions_enabled
     if body.provider is not None:
@@ -114,7 +126,8 @@ async def update_ai_settings(
         raise HTTPException(422, "Para un modelo local/OpenAI-compatible hay que indicar el endpoint y el modelo")
     db.commit()
     out = _settings_out(diagram)
-    logger.info(f"[AI SETTINGS] diagram={diagram.id} by={me.id} -> {out.provider_label} solutions={out.solutions_enabled}")
+    logger.info(f"[AI SETTINGS] diagram={diagram.id} by={me.id} -> {out.provider_label} enabled={out.enabled} "
+                f"proposals={out.proposals_enabled} solutions={out.solutions_enabled}")
     realtime_events.fire(realtime_events.notify_ai_settings(
         diagram.id, {**out.model_dump(), "changed_by": me.name},
     ))
@@ -136,3 +149,57 @@ def test_ai_settings(
     except Exception as e:
         from app.services.ai_assistant import describe_error
         return AiTestOut(ok=False, provider_label=cfg.label, detail=describe_error(e))
+
+
+# ---------------------------------------------------------------------------
+# Propuestas del asesor (segundo parcial, CU-06 / CU-07)
+# ---------------------------------------------------------------------------
+@router.get("/{diagram_id}/ai/proposals", response_model=list[ProposalOut])
+def list_proposals(
+    diagram_id: UUID,
+    status_filter: str | None = None,
+    db: Session = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
+    """Propuestas del asesor en este diagrama (cualquier integrante las ve)."""
+    diagram = get_my_diagram(db, me, diagram_id)
+    q = db.query(AiProposal).filter(AiProposal.diagram_id == diagram.id)
+    if status_filter:
+        q = q.filter(AiProposal.status == status_filter)
+    return [ai_proposals.payload(p) for p in q.order_by(AiProposal.created_at.desc()).limit(100)]
+
+
+def _decide(diagram_id: UUID, proposal_id: UUID, accept: bool, db: Session, me: User) -> dict:
+    diagram = get_my_diagram(db, me, diagram_id)
+    try:
+        p = ai_proposals.decide(db, diagram, proposal_id, me, accept)
+    except ai_proposals.ProposalError as e:
+        raise HTTPException(e.status_code, e.detail)
+    data = ai_proposals.payload(p)
+    logger.info(f"[AI PROPOSAL] diagram={diagram.id} proposal={p.id} by={me.id} -> {p.status}")
+    # Todos ven el cambio de estado de la tarjeta y queda registrado en el chat
+    # quien decidio (los cambios en si ya se difundieron como class.*/relation.*).
+    realtime_events.fire(realtime_events.notify_ai_proposal(diagram.id, data))
+    if p.message_id:
+        verbo = {"applied": "aplicó", "rejected": "rechazó", "stale": "intentó aplicar (desactualizada)",
+                 "failed": "intentó aplicar (falló una operación)"}.get(p.status, p.status)
+        answer = db.get(chat_service.ChatMessage, p.message_id)
+        if answer is not None:
+            chat_service.post_proposal_note(db, answer, f"{me.name} {verbo} la propuesta: {p.summary}")
+    return data
+
+
+@router.post("/{diagram_id}/ai/proposals/{proposal_id}/accept", response_model=ProposalOut)
+def accept_proposal(diagram_id: UUID, proposal_id: UUID, db: Session = Depends(get_db),
+                    me: User = Depends(get_current_user)):
+    """Acepta y aplica la propuesta (quien hizo la consulta o el dueño). Si las
+    clases involucradas cambiaron desde que se propuso, queda "stale" y no
+    se aplica."""
+    return _decide(diagram_id, proposal_id, True, db, me)
+
+
+@router.post("/{diagram_id}/ai/proposals/{proposal_id}/reject", response_model=ProposalOut)
+def reject_proposal(diagram_id: UUID, proposal_id: UUID, db: Session = Depends(get_db),
+                    me: User = Depends(get_current_user)):
+    return _decide(diagram_id, proposal_id, False, db, me)
+

@@ -105,10 +105,11 @@ def fake_ai(monkeypatch):
     behaviour = {"reply": "Listo, cree la clase Factura.", "error": None}
 
     def _run_command(db, diagram, user_text, requester=None, history=None, team_context=None, mode=None,
-                     solutions_enabled=False):
+                     solutions_enabled=False, proposals_enabled=False, **kw):
         calls.append({
             "text": user_text, "requester": requester, "history": list(history or []),
             "team": list(team_context or []), "solutions_enabled": solutions_enabled,
+            "proposals_enabled": proposals_enabled,
         })
         if behaviour["error"]:
             raise behaviour["error"]

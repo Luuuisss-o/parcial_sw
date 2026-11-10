@@ -61,9 +61,22 @@ def post_chat(
 ):
     diagram = get_my_diagram(db, me, diagram_id)
     asks_ai, _ = chat_service.parse_ai_mention(body.text, body.ask_ai)
+
+    # Asesor desactivado por el dueño (CU-08): el mensaje queda en el chat
+    # como uno comun y la IA avisa que no participa.
+    if asks_ai and not diagram.ai_enabled:
+        msg = chat_service.create_user_message(db, diagram, me, body.text, asks_ai=False)
+        chat_service.publish(diagram.id, msg)
+        chat_service.post_ai_note(db, msg, chat_service.AI_DISABLED_NOTE)
+        return msg
+    # Limite de uso: una consulta a la IA en curso por persona y diagrama.
+    if asks_ai and chat_service.question_in_progress(db, diagram.id, me.id):
+        raise HTTPException(429, "Ya tenés una consulta a la IA en curso: esperá su respuesta antes de hacer otra.")
+
     # Se guarda el texto tal como lo escribio el usuario (con su "@IA"), asi el
     # chat muestra exactamente lo que mando; al modelo le llega sin la mencion.
-    msg = chat_service.create_user_message(db, diagram, me, body.text, asks_ai)
+    msg = chat_service.create_user_message(db, diagram, me, body.text, asks_ai,
+                                           on_device=bool(asks_ai and body.answer_on_device))
     chat_service.publish(diagram.id, msg)
     logger.info(f"[CHAT] diagram={diagram.id} user={me.id} asks_ai={asks_ai}")
 
