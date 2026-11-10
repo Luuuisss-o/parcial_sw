@@ -21,6 +21,11 @@ paralela. Cada estado se respalda con una prueba **ejecutada**.
 Pruebas al cerrar: backend + generador **209/209** (incluidas las que llaman a Gemini real),
 móvil **133/133**, E2E en navegador con 3 sesiones y Gemini real **25/25**.
 
+Re-verificación del 10/11/2026 (con el modelo propio, HTTPS y la app nueva): backend + generador
+**220/220** dos veces seguidas, con Gemini real y una base nueva aislada; móvil **130/130**
+(3 omitidas); la web compila. En producción: migración en `head`, modelo v2 respondiendo por
+HTTPS desde el backend (revisión con propuesta, mentoría sin acciones y edición correctas).
+
 ## Qué existía y qué se agregó
 
 Ya existía (Fase 2, `docs/ESPECIFICACION_FASE_2.md`): chat grupal persistido por diagrama,
@@ -82,8 +87,12 @@ Se agregó en este parcial:
 - **Backend:** proveedor `trained` (`services/trained_model.py`) con el **mismo prompt del
   entrenamiento** (`training/prompt_contract.py`): ejecuta las ediciones y deja como propuesta
   lo que recomienda como asesor.
-- **Medido** con el modelo real en 2 CPU: edición 6 s, revisión 5 s; pruebas
+- **Medido** con el modelo v2 en 2 CPU desde producción: edición 8 s, mentoría 11 s, revisión
+  con propuesta 37 s (la más larga: escribe varias operaciones); pruebas
   `tests/test_modelo_propio.py` (7).
+- **Evaluación v2** (131 ejemplos que el modelo no vio; base → entrenado): JSON válido 88,8 →
+  97,5 %; herramientas correctas 25 → 95 %; se dirige por el nombre 30 → 97,5 %; mentoría sin
+  acciones 12,5 → 100 %; revisión con la propuesta correcta 21,4 → 92,9 %.
 - El mismo modelo corre también en el celular (primer parcial), que ahora también deja
   propuestas como asesor.
 
@@ -115,7 +124,9 @@ llega dirigida a quien preguntó con una propuesta que esa persona (o el dueño)
 
 ## Pendiente
 
-1. Desplegar en producción (backend con la migración nueva y web).
-2. Crear la EC2 del modelo y conectarla (`deploy/model_server/README.md`).
-3. Entrenar la versión v2 en Colab y publicarla (la EC2 del modelo y los celulares la toman solos).
-4. Generar e instalar el APK nuevo (prompt v2 y propuestas del asesor desde el celular).
+1. Redesplegar la **web** en producción: la desplegada es anterior a la opción *Modelo propio del
+   equipo* en la configuración de la IA (el resto del 2P sí está desplegado).
+2. Redesplegar el **backend** con el arreglo de “borrar el diagrama mientras la IA responde”.
+
+Hecho: EC2 del modelo conectada por HTTPS con pinning, modelo v2 entrenado y publicado, APK
+nueva instalada (prompt v2, propuestas del asesor y cierre de sesión al vencer el token).

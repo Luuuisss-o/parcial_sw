@@ -280,6 +280,32 @@ def test_error_de_la_ia_queda_publico_y_dirigido(client, team, fake_ai):
         assert ev["requested_by"]["name"] == "Bruno Díaz"
 
 
+def test_borrar_el_diagrama_mientras_la_ia_responde_no_rompe(client, team, monkeypatch):
+    """El dueño borra el diagrama mientras la IA piensa: la tarea en segundo
+    plano termina sin excepcion (antes intentaba guardar el aviso de error
+    sobre una pregunta que ya no existia)."""
+    db = SessionLocal()
+    d = Diagram(title="se borra mientras responde", owner_id=team["ana"]["id"])
+    db.add(d)
+    db.commit()
+    did = str(d.id)
+
+    def _run_command(db_bg, diagram, *a, **k):
+        other = SessionLocal()
+        other.delete(other.get(Diagram, diagram.id))
+        other.commit()
+        other.close()
+        raise RuntimeError("la base rechaza escribir en un diagrama borrado")
+
+    monkeypatch.setattr(ai_assistant, "run_command", _run_command)
+    r = client.post(f"/diagrams/{did}/chat", json={"text": "creá la clase Pago", "ask_ai": True},
+                    headers=_h(team["ana"]))
+    assert r.status_code in (200, 201, 202)
+    db.expire_all()
+    assert db.get(Diagram, uuid.UUID(did)) is None
+    db.close()
+
+
 def test_endpoint_ai_command_tambien_es_publico(client, team, fake_ai):
     calls, _ = fake_ai
     did = team["diagram_id"]

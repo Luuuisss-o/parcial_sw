@@ -298,6 +298,7 @@ def run_ai_question_background(question_id: UUID) -> None:
         if diagram is None:
             logger.warning(f"[AI CHAT] el diagrama {question.diagram_id} ya no existe")
             return
+        diagram_id = diagram.id
 
         requester = ai_assistant.Requester(
             user_id=question.author_id,
@@ -354,14 +355,19 @@ def run_ai_question_background(question_id: UUID) -> None:
                 request_id=request_id, requested_by=requested_by, message_id=str(answer.id),
             ))
         except Exception as e:
-            logger.error(f"[AI CHAT] fallo: {type(e).__name__}: {e}")
             db.rollback()
+            # Si borraron el diagrama (y con el su chat) mientras la IA
+            # respondia, no hay donde dejar el aviso de error: se termina.
+            if db.get(Diagram, diagram_id) is None or db.get(ChatMessage, question_id) is None:
+                logger.warning(f"[AI CHAT] el diagrama {diagram_id} se borró mientras la IA respondía")
+                return
+            logger.error(f"[AI CHAT] fallo: {type(e).__name__}: {e}")
             detail = address_reply(ai_assistant.describe_error(e), requester.name)
             err = _save_ai_message(db, question, ChatRole.ERROR, detail)
             _set_status(db, question, AI_FAILED)
-            publish(diagram.id, err)
+            publish(diagram_id, err)
             realtime_events.fire(realtime_events.notify_ai_error(
-                diagram.id, detail, request_id=request_id, requested_by=requested_by,
+                diagram_id, detail, request_id=request_id, requested_by=requested_by,
             ))
     finally:
         db.close()
