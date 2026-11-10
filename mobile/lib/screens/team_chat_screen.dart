@@ -162,7 +162,10 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
       final q = await _app.api.sendChat(widget.diagramId, text, askAi: asksAi, answerOnDevice: local);
       _input.clear();
       _add([q]);
-      if (local) {
+      // Si el asesor está desactivado en el diagrama, el servidor guarda la
+      // pregunta como mensaje común (asks_ai=false) y avisa en el chat: no
+      // hay consulta que responder en el celular.
+      if (local && q.asksAi) {
         final app = _app;
         final runner = DiagramToolRunner(app.api, widget.diagramId);
         // No se espera: la respuesta llega a todos (incluido este celular)
