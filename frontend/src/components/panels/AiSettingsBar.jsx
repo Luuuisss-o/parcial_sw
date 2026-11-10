@@ -60,7 +60,7 @@ function ProviderForm({ diagramId, settings, onSaved, onClose }) {
     try {
       const body = { provider };
       if (provider === "openai_compatible") Object.assign(body, { base_url: baseUrl.trim(), model: model.trim() });
-      if (provider !== "default" && apiKey) body.api_key = apiKey;
+      if (provider !== "default" && provider !== "trained" && apiKey) body.api_key = apiKey;
       const s = await updateAiSettings(diagramId, body);
       onSaved(s);
       setApiKey("");
@@ -88,6 +88,9 @@ function ProviderForm({ diagramId, settings, onSaved, onClose }) {
         <select className="input input-sm" value={provider} onChange={(e) => setProvider(e.target.value)}>
           <option value="default">Por defecto del servidor</option>
           <option value="gemini">Gemini (Google AI Studio, nube)</option>
+          {settings.trained_available && (
+            <option value="trained">Modelo propio del equipo (Gemma 3 1B entrenado, servidor propio)</option>
+          )}
           <option value="openai_compatible">Modelo local / Colab (API compatible con OpenAI)</option>
         </select>
       </label>
@@ -113,7 +116,13 @@ function ProviderForm({ diagramId, settings, onSaved, onClose }) {
           </label>
         </>
       )}
-      {provider !== "default" && (
+      {provider === "trained" && (
+        <span className="text-muted">
+          Corre en el servidor del modelo del equipo (sin nube). Edita cuando se lo piden y, como asesor,
+          deja propuestas. Tarda unos segundos más que Gemini.
+        </span>
+      )}
+      {provider !== "default" && provider !== "trained" && (
         <label style={row}>
           <span className="text-muted">
             Token / API key {settings.has_api_key ? "(hay uno guardado; dejalo vacío para conservarlo)" : "(opcional)"}
@@ -233,6 +242,7 @@ export default function AiSettingsBar({ diagramId, isOwner, initialEnabled = fal
             title={settings.provider_label}>
             Modelo: {settings.provider_label || "…"}
             {settings.provider === "openai_compatible" && " · local/Colab"}
+            {settings.provider === "trained" && " · servidor propio"}
           </span>
           {isOwner && (
             <button className="btn btn-ghost btn-sm" style={{ height: 20, padding: "0 6px", fontSize: 11 }}
