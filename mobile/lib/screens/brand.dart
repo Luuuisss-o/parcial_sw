@@ -63,3 +63,150 @@ class BrandGridPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
+
+/// Botón principal ámbar (el "Ingresar" del login).
+ButtonStyle brandPrimaryButton() => FilledButton.styleFrom(
+      backgroundColor: BrandColors.amber,
+      foregroundColor: BrandColors.amberInk,
+      disabledBackgroundColor: BrandColors.amber.withValues(alpha: 0.6),
+      disabledForegroundColor: BrandColors.amberInk.withValues(alpha: 0.7),
+      minimumSize: const Size.fromHeight(50),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+    );
+
+/// Tarjeta blanca con franja de color arriba (formulario del login y
+/// tarjetas de "¿Qué querés hacer?").
+BoxDecoration brandCardDecoration() => BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      boxShadow: const [
+        BoxShadow(color: Color(0x1A0E3B36), blurRadius: 20, offset: Offset(0, 8)),
+      ],
+    );
+
+/// Encabezado de las pantallas internas: verde petróleo con cuadrícula,
+/// botón de volver, título grande, subtítulo y acciones a la derecha.
+class BrandPageHeader extends StatelessWidget {
+  const BrandPageHeader({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.actions = const [],
+  });
+
+  final String title;
+  final String? subtitle;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final top = MediaQuery.of(context).padding.top;
+    final canPop = Navigator.of(context).canPop();
+    return CustomPaint(
+      painter: const BrandGridPainter(),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(14, top + 10, 14, 22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              height: 44,
+              child: Row(
+                children: [
+                  if (canPop)
+                    BrandHeaderButton(
+                      icon: Icons.arrow_back_rounded,
+                      tooltip: 'Volver',
+                      onPressed: () => Navigator.of(context).maybePop(),
+                    ),
+                  const Spacer(),
+                  ...actions,
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: BrandColors.brandText,
+                      fontSize: 26,
+                      height: 1.15,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.4,
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      subtitle!,
+                      style: const TextStyle(color: BrandColors.brandMuted, fontSize: 14, height: 1.35),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Botón redondeado translúcido para el encabezado (volver, cerrar sesión).
+class BrandHeaderButton extends StatelessWidget {
+  const BrandHeaderButton({super.key, required this.icon, required this.tooltip, required this.onPressed});
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon, size: 22),
+      style: IconButton.styleFrom(
+        foregroundColor: BrandColors.brandText,
+        backgroundColor: BrandColors.mint.withValues(alpha: 0.10),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: BrandColors.mint.withValues(alpha: 0.30)),
+        ),
+      ),
+    );
+  }
+}
+
+/// Aviso de error con el mismo estilo del login.
+class BrandErrorBox extends StatelessWidget {
+  const BrandErrorBox(this.message, {super.key});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFDE8E6),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber_rounded, size: 18, color: Color(0xFFD64545)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(message, style: const TextStyle(color: Color(0xFFB43636), fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+}
