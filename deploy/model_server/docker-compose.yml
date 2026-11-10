@@ -26,3 +26,11 @@ services:
       - ./certs:/certs:ro
     ports:
       - "8080:8080"
+    # El chequeo de la imagen usa http://: con HTTPS hay que reemplazarlo
+    # (-k: es dentro del propio contenedor, contra localhost).
+    healthcheck:
+      test: ["CMD", "curl", "-fsk", "https://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
