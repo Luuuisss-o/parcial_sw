@@ -12,10 +12,24 @@
 //   - contador de no leídos mientras el panel está cerrado.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { listChat, sendChat } from "../api/chat";
+import { decideProposal, listChat, sendChat } from "../api/chat";
 import { getPresence, onEvent } from "../api/realtime";
 
 const PAGE = 50;
+
+// Consultas a la IA que todavía no tienen respuesta según el historial
+// (ai_status persistido): quien entra tarde también ve "La IA está
+// respondiendo a…", no solo quien estaba conectado cuando empezó.
+function pendingFromHistory(items) {
+  const answered = new Set(items.filter((m) => m.reply_to_id).map((m) => m.reply_to_id));
+  const out = {};
+  for (const m of items) {
+    if (m.asks_ai && ["pending", "running", "device"].includes(m.ai_status) && !answered.has(m.id)) {
+      out[m.id] = { name: m.author_name, text: m.content };
+    }
+  }
+  return out;
+}
 
 function mergeMessages(prev, incoming) {
   const byId = new Map(prev.map((m) => [m.id, m]));
@@ -51,6 +65,7 @@ export default function useTeamChat(diagramId, { myEmail, isOpen }) {
         data.items.forEach((m) => seenIds.current.add(m.id));
         setMessages((prev) => mergeMessages(prev, data.items));
         setHasMore(data.has_more);
+        setPendingAi((p) => ({ ...pendingFromHistory(data.items), ...p }));
       })
       .catch(() => !cancelled && setLoadError("No se pudo cargar el historial del chat."))
       .finally(() => !cancelled && setLoading(false));
@@ -71,8 +86,15 @@ export default function useTeamChat(diagramId, { myEmail, isOpen }) {
           .then((data) => {
             data.items.forEach((m) => seenIds.current.add(m.id));
             setMessages((prev) => mergeMessages(prev, data.items));
+            setPendingAi(pendingFromHistory(data.items));
           })
           .catch(() => {});
+      }),
+      // Una propuesta del asesor cambió de estado (la aceptó/rechazó alguien):
+      // se actualiza su tarjeta en todas las sesiones.
+      onEvent("ai.proposal", (p) => {
+        if (!p?.id) return;
+        setMessages((prev) => prev.map((m) => (m.proposal?.id === p.id ? { ...m, proposal: p } : m)));
       }),
       onEvent("chat.message", (msg) => {
         if (!msg || msg.diagram_id !== diagramId || seenIds.current.has(msg.id)) return;
@@ -123,5 +145,14 @@ export default function useTeamChat(diagramId, { myEmail, isOpen }) {
     [diagramId]
   );
 
-  return { messages, hasMore, loading, loadError, presence, pendingAi, unread, loadOlder, send };
+  const decide = useCallback(
+    async (proposalId, accept) => {
+      const p = await decideProposal(diagramId, proposalId, accept);
+      setMessages((prev) => prev.map((m) => (m.proposal?.id === p.id ? { ...m, proposal: p } : m)));
+      return p;
+    },
+    [diagramId]
+  );
+
+  return { messages, hasMore, loading, loadError, presence, pendingAi, unread, loadOlder, send, decide };
 }

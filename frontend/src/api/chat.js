@@ -34,3 +34,13 @@ export const updateAiSettings = (diagramId, settings) =>
 /** Solo el dueño: prueba el proveedor de IA configurado. → { ok, provider_label, detail } */
 export const testAiSettings = (diagramId) =>
   api.post(`/diagrams/${diagramId}/ai/settings/test`, null, { timeout: 200000 }).then((r) => r.data);
+
+/**
+ * Propuesta del asesor (segundo parcial): aceptarla la aplica al diagrama
+ * (si las clases involucradas no cambiaron; si cambiaron queda "stale").
+ * Solo quien hizo la consulta o el dueño del diagrama. → la propuesta actualizada.
+ */
+export const decideProposal = (diagramId, proposalId, accept) =>
+  api
+    .post(`/diagrams/${diagramId}/ai/proposals/${proposalId}/${accept ? "accept" : "reject"}`)
+    .then((r) => r.data);

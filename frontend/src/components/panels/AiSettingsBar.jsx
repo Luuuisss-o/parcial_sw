@@ -1,7 +1,11 @@
 // src/components/panels/AiSettingsBar.jsx
 //
-// Franja del chat con la configuración de la IA del diagrama (Fase 2).
+// Franja del chat con la configuración de la IA del diagrama (Fase 2 y
+// segundo parcial).
 //
+//  - Asesor activo / puede proponer cambios (segundo parcial, CU-08): el
+//    asesor participa a demanda (cuando lo consultan con @IA); sus propuestas
+//    de cambios nunca se aplican sin que alguien las acepte.
 //  - CU-18 Entrega de soluciones: "la IA va a tener la capacidad de entregar
 //    soluciones cuando así se lo requieran. Eso va a ser configurable".
 //  - CU-17 Proveedor de IA: Gemini (nube) o un modelo local / en Colab con
@@ -135,9 +139,31 @@ function ProviderForm({ diagramId, settings, onSaved, onClose }) {
   );
 }
 
-export default function AiSettingsBar({ diagramId, isOwner, initialEnabled = false }) {
-  const [settings, setSettings] = useState({ solutions_enabled: initialEnabled, provider_label: "", provider_is_default: true });
-  const [saving, setSaving] = useState(false);
+// Interruptores del asesor. Todo el equipo ve el estado; solo el dueño cambia.
+const TOGGLES = [
+  {
+    key: "enabled",
+    on: "Asesor IA activo · responde cuando lo consultan (@IA)",
+    off: "Asesor IA desactivado · no responde consultas",
+  },
+  {
+    key: "proposals_enabled",
+    on: "Puede proponer cambios · se aplican solo si alguien los acepta",
+    off: "No propone cambios · solo explica y recomienda",
+  },
+  {
+    key: "solutions_enabled",
+    on: "Puede entregar soluciones de diseño completas",
+    off: "Solo ediciones puntuales y mentoría",
+  },
+];
+
+export default function AiSettingsBar({ diagramId, isOwner, initialEnabled = false, onChange }) {
+  const [settings, setSettings] = useState({
+    enabled: true, proposals_enabled: true, solutions_enabled: initialEnabled,
+    provider_label: "", provider_is_default: true,
+  });
+  const [saving, setSaving] = useState(null);
   const [changedBy, setChangedBy] = useState(null);
   const [editing, setEditing] = useState(false);
 
@@ -155,43 +181,52 @@ export default function AiSettingsBar({ diagramId, isOwner, initialEnabled = fal
     };
   }, [diagramId]);
 
-  const enabled = !!settings.solutions_enabled;
+  // El panel del chat necesita saber si el asesor está activo.
+  useEffect(() => {
+    onChange?.(settings);
+  }, [settings, onChange]);
 
-  const toggle = async () => {
+  const toggle = async (key) => {
     if (!isOwner || saving) return;
-    setSaving(true);
+    setSaving(key);
     try {
-      setSettings(await updateAiSettings(diagramId, { solutions_enabled: !enabled }));
+      setSettings(await updateAiSettings(diagramId, { [key]: !settings[key] }));
       setChangedBy(null);
     } catch {
       /* el switch vuelve a mostrar el valor real */
     } finally {
-      setSaving(false);
+      setSaving(null);
     }
   };
+
+  const active = settings.enabled !== false;
+  const visible = active ? TOGGLES : TOGGLES.slice(0, 1);
 
   return (
     <>
       <div
         style={{
           display: "grid", gap: 4, padding: "6px var(--sp-4)", borderBottom: "1px solid var(--border)",
-          background: enabled ? "var(--accent-soft)" : "var(--surface-2)", fontSize: 11,
+          background: active ? "var(--accent-soft)" : "var(--surface-2)", fontSize: 11,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
-          <Icon name="sparkles" size={12} style={{ color: enabled ? "var(--accent)" : "var(--text-muted)", flex: "none" }} />
-          <span style={{ flex: 1, minWidth: 0, color: "var(--text)" }}>
-            {enabled ? "La IA puede entregar soluciones de diseño completas" : "La IA solo hace ediciones puntuales y mentoría"}
-            {changedBy && <span className="text-muted"> · cambiado por {changedBy}</span>}
-          </span>
-          {isOwner ? (
-            <Switch on={enabled} onClick={toggle} disabled={saving} label="La IA puede entregar soluciones" />
-          ) : (
-            <span className="text-muted" title="Solo el dueño del diagrama puede cambiarlo" style={{ flex: "none" }}>
-              <Icon name="lock" size={11} />
-            </span>
-          )}
-        </div>
+        {visible.map((t) => {
+          const on = settings[t.key] !== false && !!settings[t.key];
+          return (
+            <div key={t.key} style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
+              <Icon name="sparkles" size={12} style={{ color: on ? "var(--accent)" : "var(--text-muted)", flex: "none" }} />
+              <span style={{ flex: 1, minWidth: 0, color: "var(--text)" }}>{on ? t.on : t.off}</span>
+              {isOwner ? (
+                <Switch on={on} onClick={() => toggle(t.key)} disabled={!!saving} label={t.on} />
+              ) : (
+                <span className="text-muted" title="Solo el dueño del diagrama puede cambiarlo" style={{ flex: "none" }}>
+                  <Icon name="lock" size={11} />
+                </span>
+              )}
+            </div>
+          );
+        })}
+        {changedBy && <span className="text-muted">Configuración cambiada por {changedBy}</span>}
         <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", color: "var(--text-muted)" }}>
           <Icon name="cursor" size={11} style={{ flex: "none" }} />
           <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
