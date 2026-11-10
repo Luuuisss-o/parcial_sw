@@ -174,9 +174,10 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
           fetchContext: (id) => app.api.questionContext(widget.diagramId, id),
           model: app.llm.answerTeamQuestion,
           runActions: runner.runAll,
-          postAnswer: (id, {content, error, actions, aiMode, modelLabel}) => app.api.postDeviceAnswer(
+          postAnswer: (id, {content, error, actions, proposedActions, aiMode, modelLabel}) => app.api.postDeviceAnswer(
             widget.diagramId, id,
-            content: content, error: error, actions: actions, aiMode: aiMode, modelLabel: modelLabel),
+            content: content, error: error, actions: actions, proposedActions: proposedActions,
+            aiMode: aiMode, modelLabel: modelLabel),
           modelLabel: () => app.llm.modelLabel,
         ).answer(q.id);
       }

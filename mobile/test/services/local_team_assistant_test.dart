@@ -5,7 +5,7 @@ import 'package:uml_collab_mobile/services/local_team_assistant.dart';
 
 class _Posted {
   String? content, error, aiMode, label;
-  List<Map<String, dynamic>>? actions;
+  List<Map<String, dynamic>>? actions, proposed;
 }
 
 LocalTeamAssistant _assistant({
@@ -22,11 +22,12 @@ LocalTeamAssistant _assistant({
         ran?.add(actions);
         return [for (final a in actions) ActionOutcome(a, !(fails?.call(a) ?? false), 'hecho ${a.tool}')];
       },
-      postAnswer: (id, {content, error, actions, aiMode, modelLabel}) async {
+      postAnswer: (id, {content, error, actions, proposedActions, aiMode, modelLabel}) async {
         posted
           ..content = content
           ..error = error
           ..actions = actions
+          ..proposed = proposedActions
           ..aiMode = aiMode
           ..label = modelLabel;
       },
@@ -46,6 +47,10 @@ void main() {
     expect(ran, isEmpty);
     expect(posted.aiMode, 'MENTOR');
     expect(posted.content, 'Ana, un atributo derivado...');
+    // Lo que propuso como asesor viaja al servidor como propuesta (no se ejecutó).
+    expect(posted.proposed, [
+      {'tool': 'delete_class', 'args': {'class_name': 'X'}}
+    ]);
     expect(posted.label, 'Gemma 3 1B personalizado (móvil)');
   });
 
@@ -85,7 +90,7 @@ void main() {
       fetchContext: (_) async => throw Exception('sin red'),
       model: (_) async => const AssistantReply('', []),
       runActions: (_) async => [],
-      postAnswer: (id, {content, error, actions, aiMode, modelLabel}) async => p2.error = error,
+      postAnswer: (id, {content, error, actions, proposedActions, aiMode, modelLabel}) async => p2.error = error,
       modelLabel: () => 'm',
     ).answer('q1');
     expect(p2.error, contains('sin red'));
@@ -161,7 +166,7 @@ void main() {
           ran.add(a);
           return const [];
         },
-        postAnswer: (id, {content, error, actions, aiMode, modelLabel}) async {
+        postAnswer: (id, {content, error, actions, proposedActions, aiMode, modelLabel}) async {
           posted
             ..content = content
             ..actions = actions;

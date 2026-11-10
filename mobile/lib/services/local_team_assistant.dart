@@ -30,6 +30,7 @@ typedef AnswerPoster = Future<void> Function(
   String? content,
   String? error,
   List<Map<String, dynamic>>? actions,
+  List<Map<String, dynamic>>? proposedActions,
   String? aiMode,
   String? modelLabel,
 });
@@ -61,6 +62,10 @@ class LocalTeamAssistant {
       final mentor = ctx['mode'] == 'MENTOR';
 
       var actions = mentor ? const <AssistantAction>[] : reply.actions;
+      // Como asesor (segundo parcial) el modelo puede PROPONER cambios: no se
+      // ejecutan; se mandan al servidor, que los valida y los deja como
+      // propuesta para que el equipo los acepte.
+      final proposed = mentor ? reply.actions.take(kMaxActionsPerAnswer).map((a) => a.toJson()).toList() : null;
       if (actions.length > kMaxActionsPerAnswer) actions = actions.sublist(0, kMaxActionsPerAnswer);
 
       // Misma regla que el servidor: una eliminación con impacto no se
@@ -95,6 +100,7 @@ class LocalTeamAssistant {
         questionId,
         content: say,
         actions: done.map((o) => o.toJson()).toList(),
+        proposedActions: proposed,
         aiMode: (mentor || actions.isEmpty) && done.isEmpty ? 'MENTOR' : 'AUTO',
         modelLabel: modelLabel(),
       );

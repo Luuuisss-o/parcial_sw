@@ -253,6 +253,7 @@ class ApiClient {
     String? content,
     String? error,
     List<Map<String, dynamic>>? actions,
+    List<Map<String, dynamic>>? proposedActions,
     String? aiMode,
     String? modelLabel,
   }) async {
@@ -263,6 +264,7 @@ class ApiClient {
         if (content != null) 'content': content,
         if (error != null) 'error': error,
         if (actions != null) 'actions': actions,
+        if (proposedActions != null && proposedActions.isNotEmpty) 'proposed_actions': proposedActions,
         if (aiMode != null) 'ai_mode': aiMode,
         if (modelLabel != null) 'model_label': modelLabel,
       }),

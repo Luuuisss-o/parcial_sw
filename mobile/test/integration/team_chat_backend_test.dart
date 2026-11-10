@@ -127,8 +127,9 @@ void main() {
       fetchContext: (id) => api.questionContext(diagramId, id),
       model: fakeModel,
       runActions: runner.runAll,
-      postAnswer: (id, {content, error, actions, aiMode, modelLabel}) => api.postDeviceAnswer(diagramId, id,
-          content: content, error: error, actions: actions, aiMode: aiMode, modelLabel: modelLabel),
+      postAnswer: (id, {content, error, actions, proposedActions, aiMode, modelLabel}) => api.postDeviceAnswer(diagramId, id,
+          content: content, error: error, actions: actions, proposedActions: proposedActions,
+          aiMode: aiMode, modelLabel: modelLabel),
       modelLabel: () => 'Gemma 3 1B personalizado v2026.11.08-test (móvil)',
     ).answer(q.id);
 
@@ -165,8 +166,9 @@ void main() {
       model: (_) async => parseAssistantReply('{"say": "Ana, un atributo derivado se calcula a partir de otros '
           '(en UML lleva /). Ej: /total en Factura.", "actions": [{"tool": "delete_class", "args": {"class_name": "Pago"}}]}'),
       runActions: DiagramToolRunner(api, diagramId).runAll,
-      postAnswer: (id, {content, error, actions, aiMode, modelLabel}) => api.postDeviceAnswer(diagramId, id,
-          content: content, error: error, actions: actions, aiMode: aiMode, modelLabel: modelLabel),
+      postAnswer: (id, {content, error, actions, proposedActions, aiMode, modelLabel}) => api.postDeviceAnswer(diagramId, id,
+          content: content, error: error, actions: actions, proposedActions: proposedActions,
+          aiMode: aiMode, modelLabel: modelLabel),
       modelLabel: () => 'Gemma (móvil)',
     ).answer(q.id);
 
