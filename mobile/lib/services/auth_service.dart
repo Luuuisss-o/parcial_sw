@@ -34,11 +34,28 @@ class AuthService {
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'email': email, 'password': password}),
     );
-    if (resp.statusCode != 200) {
-      final detail = _tryExtractDetail(resp.body);
-      throw AuthException(detail ?? 'No se pudo iniciar sesión');
+    await _storeToken(resp, email, 'No se pudo iniciar sesión');
+  }
+
+  /// Crea una cuenta nueva y deja la sesión iniciada (el backend devuelve
+  /// el token, igual que al iniciar sesión).
+  Future<void> signUp(String name, String email, String password) async {
+    final resp = await http.post(
+      Uri.parse('${AppConfig.apiBaseUrl}/auth/sign-up'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'name': name, 'email': email, 'password': password}),
+    );
+    await _storeToken(resp, email.trim().toLowerCase(), 'No se pudo crear la cuenta');
+  }
+
+  Future<void> _storeToken(http.Response resp, String email, String fallbackError) async {
+    // UTF-8 explícito: la respuesta no declara charset y con resp.body los
+    // mensajes con tilde ("Credenciales inválidas") llegaban rotos.
+    final body = utf8.decode(resp.bodyBytes);
+    if (resp.statusCode != 200 && resp.statusCode != 201) {
+      throw AuthException(_tryExtractDetail(body) ?? fallbackError);
     }
-    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    final data = jsonDecode(body) as Map<String, dynamic>;
     _token = data['access_token'] as String;
     _email = email;
     sessionExpired = false;

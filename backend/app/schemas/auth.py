@@ -10,6 +10,14 @@ class SignUpIn(BaseModel):
     password: str = Field(min_length=8, max_length=128)
 
 
+class SignUpRequest(BaseModel):
+    """Alta desde el formulario de registro. Sin restricciones de longitud
+    acá: las valida el endpoint con mensajes en español para el usuario."""
+    name: str
+    email: str
+    password: str
+
+
 class SignInIn(BaseModel):
     """Datos que envía el cliente para iniciar sesión"""
     email: str                      # 👈 acepta cualquier string

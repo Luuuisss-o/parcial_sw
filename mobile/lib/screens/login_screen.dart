@@ -17,8 +17,12 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
+  final _password2Ctrl = TextEditingController();
+  // false: iniciar sesión; true: crear una cuenta nueva.
+  bool _signup = false;
   bool _loading = false;
   bool _showPwd = false;
   String? _error;
@@ -33,19 +37,45 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _nameCtrl.dispose();
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
+    _password2Ctrl.dispose();
     super.dispose();
   }
 
+  void _switchMode() {
+    setState(() {
+      _signup = !_signup;
+      _error = null;
+      _passwordCtrl.clear();
+      _password2Ctrl.clear();
+    });
+  }
+
   Future<void> _submit() async {
+    if (_signup) {
+      if (_passwordCtrl.text.length < 8) {
+        setState(() => _error = 'La contraseña tiene que tener al menos 8 caracteres.');
+        return;
+      }
+      if (_passwordCtrl.text != _password2Ctrl.text) {
+        setState(() => _error = 'Las contraseñas no coinciden.');
+        return;
+      }
+    }
     setState(() {
       _loading = true;
       _error = null;
     });
     final app = context.read<AppState>();
     try {
-      await app.auth.signIn(_emailCtrl.text.trim(), _passwordCtrl.text);
+      if (_signup) {
+        // Registrarse deja la sesión iniciada (el backend devuelve el token).
+        await app.auth.signUp(_nameCtrl.text.trim(), _emailCtrl.text.trim(), _passwordCtrl.text);
+      } else {
+        await app.auth.signIn(_emailCtrl.text.trim(), _passwordCtrl.text);
+      }
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const ModeSelectorScreen()),
@@ -77,9 +107,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const Text(
-                          '¡Hola de nuevo!',
-                          style: TextStyle(
+                        Text(
+                          _signup ? 'Creá tu cuenta' : '¡Hola de nuevo!',
+                          style: const TextStyle(
                             fontSize: 26,
                             fontWeight: FontWeight.w800,
                             color: BrandColors.ink,
@@ -87,12 +117,32 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        const Text(
-                          'Iniciá sesión para seguir con tus diagramas.',
-                          style: TextStyle(fontSize: 14, color: BrandColors.muted),
+                        Text(
+                          _signup
+                              ? 'Registrate para diseñar diagramas con tu equipo.'
+                              : 'Iniciá sesión para seguir con tus diagramas.',
+                          style: const TextStyle(fontSize: 14, color: BrandColors.muted),
                         ),
                         const SizedBox(height: 20),
                         _formCard(),
+                        const SizedBox(height: 14),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              _signup ? '¿Ya tenés una cuenta?' : '¿No tenés una cuenta?',
+                              style: const TextStyle(color: BrandColors.muted),
+                            ),
+                            TextButton(
+                              onPressed: _loading ? null : _switchMode,
+                              style: TextButton.styleFrom(foregroundColor: BrandColors.teal),
+                              child: Text(
+                                _signup ? 'Iniciá sesión' : 'Creá una',
+                                style: const TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   ),
@@ -144,6 +194,15 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (_signup) ...[
+                  TextField(
+                    controller: _nameCtrl,
+                    textCapitalization: TextCapitalization.words,
+                    autofillHints: const [AutofillHints.name],
+                    decoration: _decoration('Nombre', Icons.badge_outlined, hint: 'Tu nombre y apellido'),
+                  ),
+                  const SizedBox(height: 14),
+                ],
                 TextField(
                   controller: _emailCtrl,
                   keyboardType: TextInputType.emailAddress,
@@ -165,8 +224,17 @@ class _LoginScreenState extends State<LoginScreen> {
                       onPressed: () => setState(() => _showPwd = !_showPwd),
                     ),
                   ),
-                  onSubmitted: (_) => _loading ? null : _submit(),
+                  onSubmitted: (_) => _loading || _signup ? null : _submit(),
                 ),
+                if (_signup) ...[
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _password2Ctrl,
+                    obscureText: !_showPwd,
+                    decoration: _decoration('Repetí la contraseña', Icons.lock_outline),
+                    onSubmitted: (_) => _loading ? null : _submit(),
+                  ),
+                ],
                 const SizedBox(height: 18),
                 if (_error != null) ...[
                   Container(
@@ -207,12 +275,12 @@ class _LoginScreenState extends State<LoginScreen> {
                             height: 20,
                             child: CircularProgressIndicator(strokeWidth: 2, color: BrandColors.amberInk),
                           )
-                        : const Row(
+                        : Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Text('Ingresar'),
-                              SizedBox(width: 6),
-                              Icon(Icons.arrow_forward_rounded, size: 20),
+                              Text(_signup ? 'Crear cuenta' : 'Ingresar'),
+                              const SizedBox(width: 6),
+                              const Icon(Icons.arrow_forward_rounded, size: 20),
                             ],
                           ),
                   ),

@@ -333,6 +333,62 @@
   right: var(--sp-4);
 }
 
+/* Edge/IE agregan su propio botón para ver la contraseña: se oculta, el
+   formulario ya tiene el suyo (y mostraba dos ojos distintos). */
+.login-card input::-ms-reveal,
+.login-card input::-ms-clear {
+  display: none;
+}
+
+/* Pestañas Iniciar sesión / Crear cuenta */
+.login-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.login-tabs button {
+  height: 36px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.login-tabs button.active {
+  background: var(--surface-1);
+  color: var(--text);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+.login-switch {
+  margin: 0;
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--text-muted);
+}
+
+.login-switch button {
+  border: none;
+  background: none;
+  padding: 0;
+  color: #1f9c85;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.login-switch button:hover {
+  text-decoration: underline;
+}
+
 /* ============================ Responsive ============================ */
 
 @media (max-width: 900px) {

@@ -13,8 +13,13 @@ export default function LoginPage() {
   const { token, login } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
+  // "login" o "signup" (crear una cuenta nueva)
+  const [mode, setMode] = useState("login");
+  const isSignup = mode === "signup";
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -23,13 +28,34 @@ export default function LoginPage() {
     if (token) nav("/", { replace: true });
   }, [token, nav]);
 
+  function switchMode(next) {
+    setMode(next);
+    setError("");
+    setPassword("");
+    setPassword2("");
+  }
+
   async function onSubmit(e) {
     e.preventDefault();
     setError("");
+
+    if (isSignup) {
+      if (password.length < 8) {
+        setError("La contraseña tiene que tener al menos 8 caracteres.");
+        return;
+      }
+      if (password !== password2) {
+        setError("Las contraseñas no coinciden.");
+        return;
+      }
+    }
     setLoading(true);
 
     try {
-      const { data } = await api.post("/auth/sign-in", { email, password });
+      // Registrarse deja la sesión iniciada: el backend devuelve el token.
+      const { data } = isSignup
+        ? await api.post("/auth/sign-up", { name, email, password })
+        : await api.post("/auth/sign-in", { email, password });
       login(data.access_token);
       nav("/", { replace: true });
     } catch (err) {
@@ -44,7 +70,7 @@ export default function LoginPage() {
       } else if (err?.code === "ERR_NETWORK") {
         setError("No se pudo conectar con el servidor. ¿Está encendido el backend?");
       } else {
-        setError("Email o contraseña incorrectos");
+        setError(isSignup ? "No se pudo crear la cuenta" : "Email o contraseña incorrectos");
       }
     } finally {
       setLoading(false);
@@ -134,15 +160,60 @@ export default function LoginPage() {
         </button>
         <div className="login-form-wrap">
           <div className="login-form-head">
-            <h2>¡Hola de nuevo!</h2>
-            <p>Iniciá sesión para seguir con tus diagramas.</p>
+            <h2>{isSignup ? "Creá tu cuenta" : "¡Hola de nuevo!"}</h2>
+            <p>
+              {isSignup
+                ? "Registrate para diseñar diagramas con tu equipo."
+                : "Iniciá sesión para seguir con tus diagramas."}
+            </p>
           </div>
 
           <form onSubmit={onSubmit} className="login-card">
+            <div className="login-tabs" role="tablist" aria-label="Iniciar sesión o crear una cuenta">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={!isSignup}
+                className={!isSignup ? "active" : ""}
+                onClick={() => switchMode("login")}
+              >
+                Iniciar sesión
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={isSignup}
+                className={isSignup ? "active" : ""}
+                onClick={() => switchMode("signup")}
+              >
+                Crear cuenta
+              </button>
+            </div>
+
+            {isSignup && (
+              <div className="field">
+                <label className="label" htmlFor="name">Nombre</label>
+                <div className="login-input-icon">
+                  <Icon name="user" size={16} />
+                  <input
+                    id="name"
+                    className="input"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    minLength={2}
+                    maxLength={120}
+                    autoComplete="name"
+                    placeholder="Tu nombre y apellido"
+                  />
+                </div>
+              </div>
+            )}
+
             <div className="field">
               <label className="label" htmlFor="email">Correo electrónico</label>
               <div className="login-input-icon">
-                <Icon name="user" size={16} />
+                <Icon name="send" size={16} />
                 <input
                   id="email"
                   className="input"
@@ -168,8 +239,8 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  autoComplete="current-password"
-                  placeholder="••••••••"
+                  autoComplete={isSignup ? "new-password" : "current-password"}
+                  placeholder={isSignup ? "Al menos 8 caracteres" : "••••••••"}
                 />
                 <button
                   type="button"
@@ -183,6 +254,25 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {isSignup && (
+              <div className="field">
+                <label className="label" htmlFor="password2">Repetí la contraseña</label>
+                <div className="login-input-icon">
+                  <Icon name="lock" size={16} />
+                  <input
+                    id="password2"
+                    className="input"
+                    type={showPwd ? "text" : "password"}
+                    value={password2}
+                    onChange={(e) => setPassword2(e.target.value)}
+                    required
+                    autoComplete="new-password"
+                    placeholder="••••••••"
+                  />
+                </div>
+              </div>
+            )}
+
             {error && (
               <div className="login-error" role="alert">
                 <Icon name="warning" size={15} />
@@ -192,10 +282,17 @@ export default function LoginPage() {
 
             <button type="submit" className="btn btn-primary login-submit" disabled={loading}>
               {loading && <Icon name="loader" className="spinning" />}
-              {loading ? "Entrando…" : "Entrar"}
+              {loading ? (isSignup ? "Creando la cuenta…" : "Entrando…") : isSignup ? "Crear cuenta" : "Entrar"}
               {!loading && <Icon name="chevronRight" size={16} />}
             </button>
           </form>
+
+          <p className="login-switch">
+            {isSignup ? "¿Ya tenés una cuenta? " : "¿No tenés una cuenta? "}
+            <button type="button" onClick={() => switchMode(isSignup ? "login" : "signup")}>
+              {isSignup ? "Iniciá sesión" : "Creá una"}
+            </button>
+          </p>
 
           <div className="login-status">
             <ApiStatusBadge />
