@@ -117,10 +117,17 @@ export default function DiagramDashboard() {
     handleCanvasClick,
     handleDragEnd, handleResizeEnd,
     handleDelete,
+    handleKindChange,
     addAttr, patchAttr, removeAttr,
     addMeth, patchMeth, removeMeth,
     createAssociationClass,
   } = useClassesAndDetails(diagram);
+
+  // Enumeraciones del diagrama: el Inspector las ofrece como tipo de atributo.
+  const enumNames = classes
+    .filter((c) => c.kind === "enumeration")
+    .map((c) => c.name ?? c.nombre)
+    .filter(Boolean);
 
   // =====================================================
   // Cursores en vivo de los demás colaboradores (estilo Miro/Figma).
@@ -618,6 +625,8 @@ export default function DiagramDashboard() {
             onAddMeth={(cid) => addMeth(cid)}
             onPatchMeth={(cid, mid, patch) => patchMeth(cid, mid, patch)}
             onRemoveMeth={(cid, mid) => removeMeth(cid, mid)}
+            onKindChange={handleKindChange}
+            enumNames={enumNames}
           />
         )}
       </div>

@@ -7,6 +7,7 @@ const REL_LABEL = {
   COMPOSITION: "Composición",
   INHERITANCE: "Herencia",
   DEPENDENCY: "Dependencia",
+  REALIZATION: "Realización",
 };
 
 export default function LeftPanel({

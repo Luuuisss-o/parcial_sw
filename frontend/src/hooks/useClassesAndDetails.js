@@ -46,6 +46,21 @@ function normalizeMeth(m) {
   };
 }
 
+// Notación UML 2.5 de un atributo/método, para recrearlo igual al deshacer.
+const attrNotation = (a) => ({
+  visibility: a.visibility,
+  is_static: a.is_static,
+  is_derived: a.is_derived,
+  multiplicity: a.multiplicity,
+  default_value: a.default_value,
+});
+const methNotation = (m) => ({
+  visibility: m.visibility,
+  is_static: m.is_static,
+  is_abstract: m.is_abstract,
+  params: m.params,
+});
+
 export default function useClassesAndDetails(diagram) {
   // 🔹 Lista de clases
   const [classes, setClasses] = useState([]);
@@ -285,6 +300,21 @@ export default function useClassesAndDetails(diagram) {
     }
   }
 
+  // ====== TIPO DE CLASE (UML 2.5) ======
+  async function handleKindChange(classId, kind) {
+    const antes = classes.find((c) => c.id === classId);
+    const updated = await updateClass(classId, { kind });
+    setClasses((prev) => prev.map((c) => (c.id === classId ? { ...c, ...updated } : c)));
+    if (antes && antes.kind !== kind) {
+      const previo = antes.kind ?? "class";
+      pushUndo(`cambiar el tipo de ${antes.name ?? antes.nombre}`, async () => {
+        const back = await updateClass(classId, { kind: previo });
+        setClasses((prev) => prev.map((c) => (c.id === classId ? { ...c, ...back } : c)));
+      });
+    }
+    return updated;
+  }
+
   // ====== RENAME ======
   const debouncedSave = useDebouncedCallback(async (classId, name) => {
     const updated = await updateClass(classId, { name });
@@ -377,6 +407,7 @@ export default function useClassesAndDetails(diagram) {
         pushUndo(`eliminar la clase ${clase.name ?? clase.nombre}`, async () => {
           const recreada = await apiCreateClass(diagram.id, {
             name: clase.name ?? clase.nombre,
+            kind: clase.kind,
             x_grid: clase.x_grid, y_grid: clase.y_grid,
             w_grid: clase.w_grid, h_grid: clase.h_grid,
             z_index: clase.z_index,
@@ -386,12 +417,14 @@ export default function useClassesAndDetails(diagram) {
               name: a.name ?? a.nombre,
               type: a.type ?? a.tipo ?? "string",
               required: !!a.required,
+              ...attrNotation(a),
             });
           }
           for (const m of detalles?.meths || []) {
             await createMethod(recreada.id, {
               name: m.name ?? m.nombre,
               return_type: m.return_type ?? "void",
+              ...methNotation(m),
             });
           }
           await loadClasses();
@@ -451,6 +484,7 @@ export default function useClassesAndDetails(diagram) {
     handleCanvasClick,
     debouncedSave,
     handleRename,
+    handleKindChange,
     handleDragEnd,
     handleResizeEnd,
     handleDelete,
@@ -493,6 +527,7 @@ export default function useClassesAndDetails(diagram) {
             name: previo.name ?? previo.nombre,
             type: previo.type ?? previo.tipo ?? "string",
             required: !!previo.required,
+            ...attrNotation(previo),
           });
           await fetchDetails(classId);
         });
@@ -531,6 +566,7 @@ export default function useClassesAndDetails(diagram) {
           await createMethod(classId, {
             name: previo.name ?? previo.nombre,
             return_type: previo.return_type ?? "void",
+            ...methNotation(previo),
           });
           await fetchDetails(classId);
         });

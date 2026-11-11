@@ -19,7 +19,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.models.uml import Atributo, Clase, Diagram, Metodo, RelType, Relacion
+from app.models.uml import Atributo, Clase, Diagram, Metodo, RelType, Relacion, CLASS_KINDS, VISIBILITIES
 from app.schemas.relacion import RelacionOut
 from app.utils import realtime_events
 
@@ -153,7 +153,11 @@ class DiagramToolExecutor:
     # ---------------------------------------------------------------
     # Clases
     # ---------------------------------------------------------------
-    def create_class(self, name: str, x_grid: Optional[int] = None, y_grid: Optional[int] = None) -> dict:
+    # Los parámetros de notación UML 2.5 (kind, visibility, ...) son
+    # opcionales y NO forman parte del esquema de herramientas de la IA: los
+    # usa la importación XMI. Así el contrato con el modelo entrenado no cambia.
+    def create_class(self, name: str, x_grid: Optional[int] = None, y_grid: Optional[int] = None,
+                     kind: str = "class") -> dict:
         existing = (
             self.db.query(Clase)
             .filter(Clase.diagram_id == self.diagram.id)
@@ -171,6 +175,7 @@ class DiagramToolExecutor:
             x_grid, y_grid = self._free_slot()
         c = Clase(
             nombre=name.strip(),
+            tipo_clase=kind if kind in CLASS_KINDS else "class",
             diagram_id=self.diagram.id,
             x_grid=x_grid,
             y_grid=y_grid,
@@ -247,7 +252,9 @@ class DiagramToolExecutor:
     # ---------------------------------------------------------------
     # Atributos
     # ---------------------------------------------------------------
-    def add_attribute(self, class_name: str, name: str, type: str, required: bool = False) -> dict:
+    def add_attribute(self, class_name: str, name: str, type: str, required: bool = False,
+                      visibility: str = "-", is_static: bool = False, is_derived: bool = False,
+                      multiplicity: Optional[str] = None, default_value: Optional[str] = None) -> dict:
         c = self._find_class(class_name)
         existing = (
             self.db.query(Atributo)
@@ -257,7 +264,12 @@ class DiagramToolExecutor:
         )
         if existing:
             raise ToolError(f"La clase '{c.nombre}' ya tiene un atributo llamado '{name}'.")
-        a = Atributo(nombre=name.strip(), tipo=type.strip(), requerido=bool(required), clase_id=c.id)
+        a = Atributo(
+            nombre=name.strip(), tipo=type.strip(), requerido=bool(required), clase_id=c.id,
+            visibilidad=visibility if visibility in VISIBILITIES else "-",
+            es_estatico=bool(is_static), es_derivado=bool(is_derived),
+            multiplicidad=multiplicity or None, valor_inicial=default_value or None,
+        )
         self.db.add(a)
         self.db.commit()
         self.db.refresh(a)
@@ -279,7 +291,9 @@ class DiagramToolExecutor:
     # ---------------------------------------------------------------
     # Metodos
     # ---------------------------------------------------------------
-    def add_method(self, class_name: str, name: str, return_type: str = "void") -> dict:
+    def add_method(self, class_name: str, name: str, return_type: str = "void",
+                   visibility: str = "+", is_static: bool = False, is_abstract: bool = False,
+                   params: str = "") -> dict:
         c = self._find_class(class_name)
         existing = (
             self.db.query(Metodo)
@@ -289,7 +303,11 @@ class DiagramToolExecutor:
         )
         if existing:
             raise ToolError(f"La clase '{c.nombre}' ya tiene un metodo llamado '{name}'.")
-        m = Metodo(nombre=name.strip(), tipo_retorno=return_type.strip(), clase_id=c.id)
+        m = Metodo(
+            nombre=name.strip(), tipo_retorno=return_type.strip(), clase_id=c.id,
+            visibilidad=visibility if visibility in VISIBILITIES else "+",
+            es_estatico=bool(is_static), es_abstracto=bool(is_abstract), parametros=params or "",
+        )
         self.db.add(m)
         self.db.commit()
         self.db.refresh(m)
@@ -320,6 +338,10 @@ class DiagramToolExecutor:
         src_multiplicity: Optional[str] = None,
         dst_multiplicity: Optional[str] = None,
         es_clase_asociacion: bool = False,
+        src_role: Optional[str] = None,
+        dst_role: Optional[str] = None,
+        src_navigable: bool = False,
+        dst_navigable: bool = False,
     ) -> dict:
         src = self._find_class(from_class)
         dst = self._find_class(to_class)
@@ -343,6 +365,10 @@ class DiagramToolExecutor:
             mult_origen_min=src_min, mult_origen_max=src_max,
             mult_destino_min=dst_min, mult_destino_max=dst_max,
             es_clase_asociacion=es_clase_asociacion,
+            rol_origen=src_role or None,
+            rol_destino=dst_role or None,
+            navegable_origen=bool(src_navigable),
+            navegable_destino=bool(dst_navigable),
         )
         self.db.add(r)
         self.db.commit()

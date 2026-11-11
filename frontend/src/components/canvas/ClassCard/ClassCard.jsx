@@ -163,6 +163,7 @@ export default function ClassCard({
           innerRef={headerRef}
           onMouseDown={lockedByOther ? undefined : onHeaderMouseDown}
           title={cls.name ?? cls.nombre ?? "Clase"}
+          kind={cls.kind ?? cls.tipo_clase ?? "class"}
           pinned={pinned}
           setPinned={setPinned}
           showCounts={showCounts}
@@ -170,7 +171,13 @@ export default function ClassCard({
           lockedByOther={lockedByOther}
         />
 
-        <Body innerRef={bodyRef} showDetails={showDetails} details={details} size={size} />
+        <Body
+          innerRef={bodyRef}
+          showDetails={showDetails}
+          details={details}
+          size={size}
+          kind={cls.kind ?? cls.tipo_clase ?? "class"}
+        />
       </div>
 
       {/* Handles de resize: 4 bordes + 4 esquinas, para poder crecer en

@@ -49,6 +49,10 @@ export const createRelation = (diagramId, params) => {
     dst_mult_min: normalizeMult(params.dst_mult_min),
     dst_mult_max: normalizeMult(params.dst_mult_max),
     es_clase_asociacion: params.es_clase_asociacion,
+    src_role: params.src_role,
+    dst_role: params.dst_role,
+    src_navigable: params.src_navigable,
+    dst_navigable: params.dst_navigable,
   });
 
   console.log("📤 [createRelation] POST body:", body);
@@ -90,6 +94,10 @@ export const updateRelation = (relationId, patch = {}) => {
     src_mult_max: "src_mult_max" in patch ? normalizeMult(patch.src_mult_max) : undefined,
     dst_mult_min: "dst_mult_min" in patch ? normalizeMult(patch.dst_mult_min) : undefined,
     dst_mult_max: "dst_mult_max" in patch ? normalizeMult(patch.dst_mult_max) : undefined,
+    src_role: patch.src_role,
+    dst_role: patch.dst_role,
+    src_navigable: patch.src_navigable,
+    dst_navigable: patch.dst_navigable,
   });
 
   console.log("📤 [updateRelation] PATCH body:", { relationId, ...body });

@@ -81,6 +81,47 @@ def _mult(value: int | None) -> str:
     return "*" if value is None else str(value)
 
 
+# Notación UML 2.5: visibilidad, tipos de clase, multiplicidad de atributos.
+_VISIBILITY_TO_XMI = {"+": "public", "-": "private", "#": "protected", "~": "package"}
+_VISIBILITY_FROM_XMI = {v: k for k, v in _VISIBILITY_TO_XMI.items()}
+_KIND_TO_XMI = {"interface": "uml:Interface", "enumeration": "uml:Enumeration"}
+
+
+def _split_mult(text: str | None) -> tuple[str, str] | None:
+    """"0..*" -> ("0", "*"); "1" -> ("1", "1"); "*" -> ("0", "*")."""
+    if not text:
+        return None
+    if ".." in text:
+        lo, hi = text.split("..", 1)
+        return lo, hi
+    return ("0", "*") if text == "*" else (text, text)
+
+
+def _parse_params(text: str | None) -> list[tuple[str, str]]:
+    """"id: Long, nombre: String" -> [("id", "Long"), ("nombre", "String")]."""
+    out = []
+    for chunk in (text or "").split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        name, _, typ = chunk.partition(":")
+        out.append((name.strip() or "arg", typ.strip() or "string"))
+    return out
+
+
+def _type_child(parent: ET.Element, tipo: str, used: dict[str, str]) -> None:
+    """Asigna el tipo a un Property/Parameter: primitivo UML por href o
+    DataType propio por el atributo `type` (como lo entiende EA)."""
+    tipo = (tipo or "string").strip()
+    if tipo.lower() in _TO_UML_PRIMITIVE:
+        ET.SubElement(parent, "type", {
+            f"{{{XMI_NS}}}type": "uml:PrimitiveType",
+            "href": _PRIMITIVE_HREF.format(name=_TO_UML_PRIMITIVE[tipo.lower()]),
+        })
+    else:
+        parent.set("type", _datatype_ref(tipo, used))
+
+
 # =====================================================================
 # Export: diagrama -> XMI
 # =====================================================================
@@ -96,20 +137,37 @@ def build_xmi(diagram) -> bytes:
     used_datatypes: dict[str, str] = {}  # clave en minuscula -> nombre del DataType
 
     for c in diagram.classes:
+        kind = getattr(c, "tipo_clase", None) or "class"
         el = ET.SubElement(model, "packagedElement", {
-            f"{{{XMI_NS}}}type": "uml:Class",
+            f"{{{XMI_NS}}}type": _KIND_TO_XMI.get(kind, "uml:Class"),
             f"{{{XMI_NS}}}id": class_ids[c.id],
             "name": c.nombre,
         })
-        for a in c.atributos:
+        if kind in ("abstract", "interface"):
+            el.set("isAbstract", "true")
+
+        if kind == "enumeration":
+            # En una enumeración los atributos son sus literales.
+            for a in c.atributos:
+                ET.SubElement(el, "ownedLiteral", {
+                    f"{{{XMI_NS}}}type": "uml:EnumerationLiteral",
+                    f"{{{XMI_NS}}}id": f"L_{a.id}",
+                    "name": a.nombre,
+                })
+
+        for a in ([] if kind == "enumeration" else c.atributos):
             attr_el = ET.SubElement(el, "ownedAttribute", {
                 f"{{{XMI_NS}}}type": "uml:Property",
                 f"{{{XMI_NS}}}id": f"A_{a.id}",
                 "name": a.nombre,
-                "visibility": "private",
+                "visibility": _VISIBILITY_TO_XMI.get(getattr(a, "visibilidad", None) or "-", "private"),
             })
             if a.requerido:
                 attr_el.set("isNullable", "false")
+            if getattr(a, "es_estatico", False):
+                attr_el.set("isStatic", "true")
+            if getattr(a, "es_derivado", False):
+                attr_el.set("isDerived", "true")
 
             tipo = (a.tipo or "string").strip()
             if tipo.lower() in _TO_UML_PRIMITIVE:
@@ -124,12 +182,35 @@ def build_xmi(diagram) -> bytes:
                 # (verificado con EA 17.2).
                 attr_el.set("type", _datatype_ref(tipo, used_datatypes))
 
+            mult = _split_mult(getattr(a, "multiplicidad", None))
+            if mult:
+                ET.SubElement(attr_el, "lowerValue", {f"{{{XMI_NS}}}type": "uml:LiteralInteger", "value": mult[0]})
+                ET.SubElement(attr_el, "upperValue", {f"{{{XMI_NS}}}type": "uml:LiteralUnlimitedNatural", "value": mult[1]})
+            default = getattr(a, "valor_inicial", None)
+            if default:
+                ET.SubElement(attr_el, "defaultValue", {
+                    f"{{{XMI_NS}}}type": "uml:OpaqueExpression",
+                    f"{{{XMI_NS}}}id": f"AV_{a.id}",
+                    "body": default,
+                })
+
         for m in c.metodos:
             op_el = ET.SubElement(el, "ownedOperation", {
                 f"{{{XMI_NS}}}id": f"M_{m.id}",
                 "name": m.nombre,
-                "visibility": "public",
+                "visibility": _VISIBILITY_TO_XMI.get(getattr(m, "visibilidad", None) or "+", "public"),
             })
+            if getattr(m, "es_estatico", False):
+                op_el.set("isStatic", "true")
+            if getattr(m, "es_abstracto", False) or kind == "interface":
+                op_el.set("isAbstract", "true")
+            for i, (pname, ptype) in enumerate(_parse_params(getattr(m, "parametros", ""))):
+                p_el = ET.SubElement(op_el, "ownedParameter", {
+                    f"{{{XMI_NS}}}id": f"MP_{m.id}_{i}",
+                    "name": pname,
+                    "direction": "in",
+                })
+                _type_child(p_el, ptype, used_datatypes)
             ret = (m.tipo_retorno or "void").strip().lower()
             if ret == "void":
                 ET.SubElement(op_el, "ownedParameter", {
@@ -154,11 +235,22 @@ def build_xmi(diagram) -> bytes:
                     param_el.set("type", _datatype_ref(m.tipo_retorno, used_datatypes))
 
         # Herencia: generalization vive DENTRO del elemento hijo (origen).
+        # Realización (UML 2.5): interfaceRealization, también en el que
+        # implementa, con la interfaz como contrato.
         for r in c.outgoing_relations:
             if r.tipo == RelType.INHERITANCE:
                 ET.SubElement(el, "generalization", {
                     f"{{{XMI_NS}}}id": f"G_{r.id}",
                     "general": class_ids[r.destino_id],
+                })
+            elif r.tipo == RelType.REALIZATION:
+                ET.SubElement(el, "interfaceRealization", {
+                    f"{{{XMI_NS}}}type": "uml:InterfaceRealization",
+                    f"{{{XMI_NS}}}id": f"R_{r.id}",
+                    "client": class_ids[r.origen_id],
+                    "supplier": class_ids[r.destino_id],
+                    "contract": class_ids[r.destino_id],
+                    "implementingClassifier": class_ids[r.origen_id],
                 })
 
     # DataTypes usados, al principio del modelo (definidos antes de usarse).
@@ -172,8 +264,8 @@ def build_xmi(diagram) -> bytes:
 
     # Resto de las relaciones (asociacion / agregacion / composicion / dependencia).
     for r in diagram.relations:
-        if r.tipo == RelType.INHERITANCE:
-            continue  # ya se exporto como generalization
+        if r.tipo in (RelType.INHERITANCE, RelType.REALIZATION):
+            continue  # ya se exportaron dentro de la clase
 
         if r.tipo == RelType.DEPENDENCY:
             ET.SubElement(model, "packagedElement", {
@@ -209,6 +301,8 @@ def build_xmi(diagram) -> bytes:
             "type": class_ids[r.origen_id],
             "aggregation": _AGGREGATION_BY_TYPE.get(r.tipo, "none"),
         })
+        if getattr(r, "rol_origen", None):
+            end1.set("name", r.rol_origen)
         ET.SubElement(end1, "lowerValue", {f"{{{XMI_NS}}}type": "uml:LiteralInteger", "value": _mult(r.mult_origen_min)})
         ET.SubElement(end1, "upperValue", {f"{{{XMI_NS}}}type": "uml:LiteralUnlimitedNatural", "value": _mult(r.mult_origen_max)})
 
@@ -218,8 +312,16 @@ def build_xmi(diagram) -> bytes:
             "type": class_ids[r.destino_id],
             "aggregation": "none",
         })
+        if getattr(r, "rol_destino", None):
+            end2.set("name", r.rol_destino)
         ET.SubElement(end2, "lowerValue", {f"{{{XMI_NS}}}type": "uml:LiteralInteger", "value": _mult(r.mult_destino_min)})
         ET.SubElement(end2, "upperValue", {f"{{{XMI_NS}}}type": "uml:LiteralUnlimitedNatural", "value": _mult(r.mult_destino_max)})
+
+        # UML 2.5: un extremo navegable se lista en navigableOwnedEnd.
+        if getattr(r, "navegable_origen", False):
+            ET.SubElement(assoc, "navigableOwnedEnd", {f"{{{XMI_NS}}}idref": f"E1_{r.id}"})
+        if getattr(r, "navegable_destino", False):
+            ET.SubElement(assoc, "navigableOwnedEnd", {f"{{{XMI_NS}}}idref": f"E2_{r.id}"})
 
     ET.indent(root, space="  ")
     return b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="utf-8")
@@ -233,18 +335,28 @@ class ImportedAttribute:
     name: str
     type: str
     required: bool = False
+    visibility: str = "-"
+    is_static: bool = False
+    is_derived: bool = False
+    multiplicity: str | None = None
+    default_value: str | None = None
 
 
 @dataclass
 class ImportedMethod:
     name: str
     return_type: str = "void"
+    visibility: str = "+"
+    is_static: bool = False
+    is_abstract: bool = False
+    params: str = ""
 
 
 @dataclass
 class ImportedClass:
     xmi_id: str
     name: str
+    kind: str = "class"
     attributes: list[ImportedAttribute] = field(default_factory=list)
     methods: list[ImportedMethod] = field(default_factory=list)
 
@@ -260,6 +372,10 @@ class ImportedRelation:
     dst_mult_min: int = 1
     dst_mult_max: int | None = 1
     es_clase_asociacion: bool = False
+    src_role: str | None = None
+    dst_role: str | None = None
+    src_navigable: bool = False
+    dst_navigable: bool = False
 
 
 @dataclass
@@ -412,13 +528,26 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
     # perdian el estilo de linea punteada: directamente desaparecian del
     # diagrama resultante).
     for el in tree.iter():
-        if _xmi_type(el) not in ("uml:Class", "uml:AssociationClass"):
+        el_type = _xmi_type(el)
+        if el_type not in ("uml:Class", "uml:AssociationClass", "uml:Interface", "uml:Enumeration"):
             continue
         xid = _xmi_id(el)
         name = el.get("name")
         if not xid or not name:
             continue
-        ic = ImportedClass(xmi_id=xid, name=name)
+        if el_type == "uml:Interface":
+            kind = "interface"
+        elif el_type == "uml:Enumeration":
+            kind = "enumeration"
+        elif el.get("isAbstract") == "true":
+            kind = "abstract"
+        else:
+            kind = "class"
+        ic = ImportedClass(xmi_id=xid, name=name, kind=kind)
+        # Literales de una enumeración -> atributos de la clase
+        for lit_el in el:
+            if _local(lit_el.tag) == "ownedLiteral" and lit_el.get("name"):
+                ic.attributes.append(ImportedAttribute(name=lit_el.get("name"), type="string", visibility="+"))
         for attr_el in el:
             if _local(attr_el.tag) != "ownedAttribute":
                 continue
@@ -428,11 +557,39 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
             if not attr_name:
                 continue
             required = attr_el.get("isNullable") == "false" or attr_el.get("required") == "true"
+            # Un ownedAttribute con association="..." es el extremo de una
+            # asociación (estilo memberEnd), no un atributo de la clase.
+            if attr_el.get("association"):
+                continue
+            lo = hi = None
+            default = None
+            for child in attr_el:
+                tag = _local(child.tag)
+                if tag == "lowerValue":
+                    lo = child.get("value")
+                elif tag == "upperValue":
+                    hi = child.get("value")
+                elif tag == "defaultValue":
+                    default = child.get("body") or child.get("value")
+                    if default is None:
+                        body_el = next((b for b in child if _local(b.tag) == "body"), None)
+                        default = body_el.text if body_el is not None else None
+            multiplicity = None
+            if lo is not None or hi is not None:
+                lo = lo or "1"
+                hi = "*" if hi in ("-1", "*") else (hi or "1")
+                if not (lo == "1" and hi == "1"):
+                    multiplicity = lo if lo == hi else f"{lo}..{hi}"
             ic.attributes.append(ImportedAttribute(
                 name=attr_name,
                 type=(_normalize_type(ext_attr_types[_xmi_id(attr_el)]) if _xmi_id(attr_el) in ext_attr_types
                       else _resolve_type_name(attr_el, by_id)),
                 required=required,
+                visibility=_VISIBILITY_FROM_XMI.get(attr_el.get("visibility") or "private", "-"),
+                is_static=attr_el.get("isStatic") == "true",
+                is_derived=attr_el.get("isDerived") == "true",
+                multiplicity=multiplicity,
+                default_value=default,
             ))
         for op_el in el:
             if _local(op_el.tag) != "ownedOperation":
@@ -440,9 +597,18 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
             op_name = op_el.get("name")
             if not op_name:
                 continue
+            params = []
+            for p_el in op_el:
+                if _local(p_el.tag) != "ownedParameter" or p_el.get("direction") == "return":
+                    continue
+                params.append(f"{p_el.get('name') or 'arg'}: {_resolve_type_name(p_el, by_id)}")
             ic.methods.append(ImportedMethod(
                 name=op_name,
                 return_type=_resolve_return_type(op_el, by_id),
+                visibility=_VISIBILITY_FROM_XMI.get(op_el.get("visibility") or "public", "+"),
+                is_static=op_el.get("isStatic") == "true",
+                is_abstract=op_el.get("isAbstract") == "true",
+                params=", ".join(params),
             ))
         classes_by_id[xid] = ic
         name_by_id[xid] = name
@@ -452,12 +618,22 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
 
     # --- Herencia (generalization, vive dentro de la clase hija) ---
     for el in tree.iter():
-        if _xmi_type(el) != "uml:Class":
+        if _xmi_type(el) not in ("uml:Class", "uml:Interface", "uml:Enumeration"):
             continue
         child_id = _xmi_id(el)
         child_name = name_by_id.get(child_id)
         if not child_name:
             continue
+        for real_el in el:
+            if _local(real_el.tag) != "interfaceRealization":
+                continue
+            iface_id = real_el.get("contract") or real_el.get("supplier")
+            iface_name = name_by_id.get(iface_id) if iface_id else None
+            if iface_name:
+                result.relations.append(ImportedRelation(
+                    from_name=child_name, to_name=iface_name, type="REALIZATION",
+                    src_mult_min=1, src_mult_max=1, dst_mult_min=1, dst_mult_max=1,
+                ))
         for gen_el in el:
             if _local(gen_el.tag) != "generalization":
                 continue
@@ -472,6 +648,22 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
                 ))
             else:
                 result.warnings.append(f"Herencia de '{child_name}' con padre no resoluble, se omitio.")
+
+    # --- Realizaciones sueltas (uml:Realization / uml:InterfaceRealization fuera de la clase) ---
+    seen_real = {(r.from_name, r.to_name) for r in result.relations if r.type == "REALIZATION"}
+    for el in tree.iter():
+        if _xmi_type(el) not in ("uml:Realization", "uml:InterfaceRealization"):
+            continue
+        if _local(el.tag) == "interfaceRealization":
+            continue  # ya leída dentro de su clase
+        client, supplier = el.get("client"), el.get("supplier") or el.get("contract")
+        c_name, s_name = name_by_id.get(client), name_by_id.get(supplier)
+        if c_name and s_name and (c_name, s_name) not in seen_real:
+            seen_real.add((c_name, s_name))
+            result.relations.append(ImportedRelation(
+                from_name=c_name, to_name=s_name, type="REALIZATION",
+                src_mult_min=1, src_mult_max=1, dst_mult_min=1, dst_mult_max=1,
+            ))
 
     # --- Dependencias ---
     for el in tree.iter():
@@ -654,11 +846,19 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
             ))
             continue
 
+        navigable_ids = {
+            next((v for k, v in c.attrib.items() if _local(k) == "idref"), None)
+            for c in el if _local(c.tag) == "navigableOwnedEnd"
+        }
         result.relations.append(ImportedRelation(
             from_name=src_name, to_name=dst_name, type=rel_type,
             label=el.get("name"),
             src_mult_min=src_min, src_mult_max=src_max,
             dst_mult_min=dst_min, dst_mult_max=dst_max,
+            src_role=ends[0].get("name") or None,
+            dst_role=ends[1].get("name") or None,
+            src_navigable=_xmi_id(ends[0]) in navigable_ids,
+            dst_navigable=_xmi_id(ends[1]) in navigable_ids,
         ))
 
     result.classes = list(classes_by_id.values())

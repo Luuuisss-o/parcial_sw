@@ -75,20 +75,28 @@ export default function useRelations(diagram) {
     if (previa) {
       pushUndo(`eliminar la relación ${previa.origen_nombre} → ${previa.destino_nombre}`, async () => {
         await apiCreateRelation(diagram.id, {
-          from_class: previa.from_class,
-          to_class: previa.to_class,
-          type: previa.type,
-          label: previa.label,
+          // La lista viene con los alias en español (origen_id, tipo,
+          // mult_origen_min...) y los eventos en vivo con los nombres en
+          // inglés: se aceptan los dos.
+          from_class: previa.from_class ?? previa.origen_id,
+          to_class: previa.to_class ?? previa.destino_id,
+          type: previa.type ?? previa.tipo,
+          label: previa.label ?? previa.etiqueta,
           src_anchor: previa.src_anchor,
           dst_anchor: previa.dst_anchor,
           src_offset: previa.src_offset,
           dst_offset: previa.dst_offset,
           src_lane: previa.src_lane,
           dst_lane: previa.dst_lane,
-          src_mult_min: previa.src_mult_min,
-          src_mult_max: previa.src_mult_max,
-          dst_mult_min: previa.dst_mult_min,
-          dst_mult_max: previa.dst_mult_max,
+          src_mult_min: previa.src_mult_min ?? previa.mult_origen_min,
+          src_mult_max: previa.src_mult_max ?? previa.mult_origen_max,
+          dst_mult_min: previa.dst_mult_min ?? previa.mult_destino_min,
+          dst_mult_max: previa.dst_mult_max ?? previa.mult_destino_max,
+          es_clase_asociacion: previa.es_clase_asociacion,
+          src_role: previa.src_role ?? previa.rol_origen,
+          dst_role: previa.dst_role ?? previa.rol_destino,
+          src_navigable: previa.src_navigable ?? previa.navegable_origen,
+          dst_navigable: previa.dst_navigable ?? previa.navegable_destino,
         });
         await loadRelations();
       });

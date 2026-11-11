@@ -44,7 +44,7 @@ def list_methods(
     c = get_my_class(db, me, class_id)
     items = db.query(Metodo).filter(Metodo.clase_id == c.id).all()
     logger.info(f"✅ {len(items)} métodos encontrados en class_id={class_id}")
-    return [MetodoOut(id=i.id, name=i.nombre, return_type=i.tipo_retorno) for i in items]
+    return [MetodoOut.from_model(i) for i in items]
 
 
 # 🔹 Crear método
@@ -60,14 +60,18 @@ async def create_method(
     _ensure_unique_method_name(db, c.id, body.name)
 
     try:
-        m = Metodo(nombre=body.name, tipo_retorno=body.return_type, clase_id=c.id)
+        m = Metodo(
+            nombre=body.name, tipo_retorno=body.return_type, clase_id=c.id,
+            visibilidad=body.visibility, es_estatico=body.is_static,
+            es_abstracto=body.is_abstract, parametros=body.params,
+        )
         db.add(m); db.commit(); db.refresh(m)
         logger.info(f"✅ Método creado -> method_id={m.id}, class_id={c.id}")
 
         # 🔔 Notificar en tiempo real
         asyncio.create_task(realtime_events.notify_method_created(c.diagram_id, m))
         asyncio.create_task(realtime_events.notify_class_updated(c.diagram_id, c))
-        return MetodoOut(id=m.id, name=m.nombre, return_type=m.tipo_retorno)
+        return MetodoOut.from_model(m)
     except Exception as e:
         logger.error(f"❌ Error creando método -> class_id={class_id}, error={str(e)}")
         raise
@@ -89,6 +93,10 @@ async def update_method(
             _ensure_unique_method_name(db, m.clase_id, body.name, exclude_id=m.id)
             m.nombre = body.name
         if body.return_type is not None: m.tipo_retorno = body.return_type
+        if body.visibility is not None: m.visibilidad = body.visibility
+        if body.is_static is not None: m.es_estatico = body.is_static
+        if body.is_abstract is not None: m.es_abstracto = body.is_abstract
+        if body.params is not None: m.parametros = body.params
 
         db.commit(); db.refresh(m)
         c = m.clase
@@ -97,7 +105,7 @@ async def update_method(
         # 🔔 Notificar en tiempo real
         asyncio.create_task(realtime_events.notify_method_updated(c.diagram_id, m))
         asyncio.create_task(realtime_events.notify_class_updated(c.diagram_id, c))
-        return MetodoOut(id=m.id, name=m.nombre, return_type=m.tipo_retorno)
+        return MetodoOut.from_model(m)
     except Exception as e:
         logger.error(f"❌ Error actualizando método -> method_id={method_id}, error={str(e)}")
         raise

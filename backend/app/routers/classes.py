@@ -58,6 +58,7 @@ async def create_class(
     try:
         c = Clase(
             nombre=body.name,
+            tipo_clase=body.kind,
             diagram_id=d.id,
             x_grid=x_grid or 0,
             y_grid=y_grid or 0,
@@ -119,6 +120,7 @@ async def update_class(
             _ensure_unique_class_name(db, c.diagram_id, body.name, exclude_id=c.id)
             c.nombre = body.name
 
+        if body.kind is not None:    c.tipo_clase = body.kind
         if body.x_grid is not None:  c.x_grid  = body.x_grid
         if body.y_grid is not None:  c.y_grid  = body.y_grid
         if body.w_grid is not None:  c.w_grid  = body.w_grid

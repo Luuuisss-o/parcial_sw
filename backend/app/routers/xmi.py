@@ -90,6 +90,7 @@ async def import_xmi(
         try:
             executor.create_class(
                 name=ic.name,
+                kind=ic.kind,
                 x_grid=(idx % COLS) * COL_W,
                 y_grid=(idx // COLS) * ROW_H,
             )
@@ -101,6 +102,8 @@ async def import_xmi(
             try:
                 executor.add_attribute(
                     class_name=ic.name, name=attr.name, type=attr.type, required=attr.required,
+                    visibility=attr.visibility, is_static=attr.is_static, is_derived=attr.is_derived,
+                    multiplicity=attr.multiplicity, default_value=attr.default_value,
                 )
                 summary.attributes_created += 1
             except ToolError as e:
@@ -111,6 +114,8 @@ async def import_xmi(
             try:
                 executor.add_method(
                     class_name=ic.name, name=method.name, return_type=method.return_type,
+                    visibility=method.visibility, is_static=method.is_static,
+                    is_abstract=method.is_abstract, params=method.params,
                 )
                 summary.methods_created += 1
             except ToolError as e:
@@ -141,6 +146,10 @@ async def import_xmi(
                 src_multiplicity=_mult_str(ir.src_mult_min, ir.src_mult_max),
                 dst_multiplicity=_mult_str(ir.dst_mult_min, ir.dst_mult_max),
                 es_clase_asociacion=ir.es_clase_asociacion,
+                src_role=ir.src_role,
+                dst_role=ir.dst_role,
+                src_navigable=ir.src_navigable,
+                dst_navigable=ir.dst_navigable,
             )
             summary.relations_created += 1
         except ToolError as e:

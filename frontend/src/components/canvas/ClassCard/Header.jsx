@@ -1,9 +1,14 @@
 import Icon from "../../common/Icon";
 
+// UML 2.5: las interfaces y enumeraciones llevan su estereotipo sobre el
+// nombre; las clases abstractas (y las interfaces) van en cursiva.
+const STEREOTYPE = { interface: "«interface»", enumeration: "«enumeration»" };
+
 export default function Header({
   innerRef,
   onMouseDown,
   title,
+  kind = "class",
   pinned,
   setPinned,
   showCounts,
@@ -28,11 +33,31 @@ export default function Header({
       }}
       title={lockedByOther ? `La está editando ${lockedByOther}` : "Arrastrá para mover esta clase"}
     >
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
+      <span style={{ overflow: "hidden", display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
         {lockedByOther && (
           <Icon name="lock" size={12} style={{ color: "var(--warning)", flexShrink: 0 }} />
         )}
-        {title}
+        <span style={{ display: "grid", minWidth: 0, lineHeight: 1.25 }}>
+          {STEREOTYPE[kind] && (
+            <span
+              data-testid="class-stereotype"
+              style={{ fontSize: 10, fontWeight: 500, color: "var(--text-muted)" }}
+            >
+              {STEREOTYPE[kind]}
+            </span>
+          )}
+          <span
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              fontStyle: kind === "abstract" || kind === "interface" ? "italic" : "normal",
+            }}
+            title={kind === "abstract" ? "Clase abstracta" : undefined}
+          >
+            {title}
+          </span>
+        </span>
       </span>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

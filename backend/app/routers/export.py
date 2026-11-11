@@ -28,7 +28,16 @@ from exporters.generators.project_builder import build_project
 router = APIRouter(prefix="/diagrams", tags=["export"])
 
 
+# Notación UML 2.5 que no se traduce a entidades JPA: las interfaces y las
+# enumeraciones no son tablas (un atributo cuyo tipo es una enumeración se
+# guarda como texto, el default de map_type), una realización no es una
+# relación entre tablas, y los atributos derivados (/) o estáticos no son
+# columnas.
+_NOT_PERSISTED_KINDS = ("interface", "enumeration")
+
+
 def build_diagram_dict(diagram: Diagram) -> dict:
+    skipped = {c.id for c in diagram.classes if (c.tipo_clase or "class") in _NOT_PERSISTED_KINDS}
     return {
         "id": str(diagram.id),
         "title": diagram.title,
@@ -39,6 +48,7 @@ def build_diagram_dict(diagram: Diagram) -> dict:
                 "attributes": [
                     {"name": a.nombre, "type": a.tipo, "required": a.requerido}
                     for a in c.atributos
+                    if not a.es_derivado and not a.es_estatico
                 ],
                 "methods": [
                     {"name": m.nombre, "return_type": m.tipo_retorno}
@@ -46,6 +56,7 @@ def build_diagram_dict(diagram: Diagram) -> dict:
                 ],
             }
             for c in diagram.classes
+            if c.id not in skipped
         ],
         "relations": [
             {
@@ -63,6 +74,8 @@ def build_diagram_dict(diagram: Diagram) -> dict:
                 "role_to": r.destino.nombre.lower(),
             }
             for r in diagram.relations
+            if r.tipo.value != "REALIZATION"
+            and r.origen_id not in skipped and r.destino_id not in skipped
         ],
     }
 

@@ -197,7 +197,22 @@ class _ClassCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text(umlClass.name, style: Theme.of(context).textTheme.titleMedium),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // UML 2.5: estereotipo sobre el nombre; abstractas en cursiva.
+                      if (_stereotype(umlClass.kind) != null)
+                        Text(_stereotype(umlClass.kind)!, style: Theme.of(context).textTheme.labelSmall),
+                      Text(
+                        umlClass.name,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontStyle: umlClass.kind == 'abstract' || umlClass.kind == 'interface'
+                                  ? FontStyle.italic
+                                  : FontStyle.normal,
+                            ),
+                      ),
+                    ],
+                  ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline),
@@ -219,16 +234,32 @@ class _ClassCard extends StatelessWidget {
               ],
             ),
             if (umlClass.attributes.isNotEmpty) const Divider(),
+            // Notación UML 2.5: visibilidad, /derivado, [multiplicidad], = valor;
+            // estáticos subrayados, abstractos en cursiva. En una enumeración
+            // los atributos son sus literales (solo el nombre).
             for (final a in umlClass.attributes)
-              Text('${a.required ? '• ' : '◦ '}${a.name}: ${a.type}', style: Theme.of(context).textTheme.bodySmall),
+              Text(
+                umlClass.kind == 'enumeration'
+                    ? a.name
+                    : '${a.visibility} ${a.umlText}${a.required ? ' *' : ''}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      decoration: a.isStatic ? TextDecoration.underline : TextDecoration.none,
+                    ),
+              ),
             if (umlClass.methods.isNotEmpty) const Divider(),
             for (final m in umlClass.methods)
-              Text('${m.name}(): ${m.returnType}', style: Theme.of(context).textTheme.bodySmall),
+              Text(
+                '${m.visibility} ${m.umlText}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      decoration: m.isStatic ? TextDecoration.underline : TextDecoration.none,
+                      fontStyle: m.isAbstract || umlClass.kind == 'interface' ? FontStyle.italic : FontStyle.normal,
+                    ),
+              ),
             if (relations.isNotEmpty) ...[
               const Divider(),
               for (final r in relations)
                 Text(
-                  '${r.originName} ${_arrow(r.type)} ${r.destinationName}',
+                  _relationText(r),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
                 ),
             ],
@@ -238,18 +269,36 @@ class _ClassCard extends StatelessWidget {
     );
   }
 
-  String _arrow(RelationType t) {
-    switch (t) {
+  static String? _stereotype(String kind) => switch (kind) {
+        'interface' => '«interface»',
+        'enumeration' => '«enumeration»',
+        _ => null,
+      };
+
+  /// "Origen [rol] —▷ [rol] Destino". El símbolo va del lado del destino,
+  /// como en UML: el triángulo junto al padre / la interfaz, el rombo junto
+  /// al todo, la flecha abierta junto al extremo navegable.
+  String _relationText(UmlRelation r) {
+    final src = r.srcRole != null ? '${r.originName} (${r.srcRole})' : r.originName;
+    final dst = r.dstRole != null ? '${r.destinationName} (${r.dstRole})' : r.destinationName;
+    return '$src ${_arrow(r)} $dst';
+  }
+
+  String _arrow(UmlRelation r) {
+    final start = r.srcNavigable ? '<' : '';
+    switch (r.type) {
       case RelationType.inheritance:
-        return '▷—';
+        return '—▷';
+      case RelationType.realization:
+        return '- -▷';
       case RelationType.composition:
-        return '◆—';
+        return '$start—◆';
       case RelationType.aggregation:
-        return '◇—';
+        return '$start—◇';
       case RelationType.dependency:
         return '- ->';
       case RelationType.association:
-        return '—';
+        return '$start—${r.dstNavigable ? '>' : ''}';
     }
   }
 }

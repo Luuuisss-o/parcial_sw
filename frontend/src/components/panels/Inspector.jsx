@@ -28,8 +28,63 @@ const TYPE_OPTIONS = [
   { v: "email", label: "Correo (email)" },
 ];
 
-/** Caja de un atributo: nombre, tipo y obligatoriedad. */
-function AttributeRow({ attr, onPatch, onRemove }) {
+// Notación UML 2.5
+const VISIBILITY_OPTIONS = [
+  { v: "+", label: "+ público" },
+  { v: "-", label: "- privado" },
+  { v: "#", label: "# protegido" },
+  { v: "~", label: "~ paquete" },
+];
+
+const KIND_OPTIONS = [
+  { v: "class", label: "Clase", ayuda: "Una clase común." },
+  { v: "abstract", label: "Clase abstracta", ayuda: "No se instancia: sirve de base para sus subclases. Se dibuja en cursiva." },
+  { v: "interface", label: "Interfaz", ayuda: "Un contrato de métodos que otras clases realizan. No genera tabla." },
+  { v: "enumeration", label: "Enumeración", ayuda: "Un conjunto fijo de valores (sus literales). No genera tabla." },
+];
+
+/** Opciones de tipo: las de siempre, las enumeraciones del diagrama (un
+ * atributo puede ser de un tipo enumerado) y el tipo actual si no es
+ * ninguno de los anteriores (por ejemplo "Integer", que escribe la IA). */
+function typeOptions(current, enumNames = []) {
+  const opts = [...TYPE_OPTIONS];
+  for (const n of enumNames) {
+    if (!opts.some((o) => o.v === n)) opts.push({ v: n, label: `${n} (enumeración)` });
+  }
+  if (current && !opts.some((o) => o.v === current)) opts.push({ v: current, label: current });
+  return opts;
+}
+
+const rowCheck = { display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" };
+
+/** Input de texto que se guarda con debounce y se sincroniza con el
+ * servidor mientras no tiene el foco. */
+function DebouncedInput({ value, onSave, placeholder, title, style, mono }) {
+  const [local, setLocal] = useState(value ?? "");
+  const ref = useRef(null);
+  useEffect(() => {
+    if (document.activeElement !== ref.current) setLocal(value ?? "");
+  }, [value]);
+  return (
+    <input
+      ref={ref}
+      className="input input-sm"
+      value={local}
+      placeholder={placeholder}
+      title={title}
+      style={{ ...(mono ? { fontFamily: "var(--font-mono)" } : {}), ...style }}
+      onChange={(e) => {
+        setLocal(e.target.value);
+        onSave(e.target.value);
+      }}
+    />
+  );
+}
+
+/** Caja de un atributo: nombre, tipo, obligatoriedad y notación UML 2.5
+ * (visibilidad, multiplicidad, valor inicial, estático, derivado). En una
+ * enumeración, cada "atributo" es un literal y solo se edita su nombre. */
+function AttributeRow({ attr, onPatch, onRemove, enumNames, isLiteral }) {
   const serverName = attr.name ?? attr.nombre ?? "";
   const [name, setName] = useState(serverName);
   const inputRef = useRef(null);
@@ -42,6 +97,10 @@ function AttributeRow({ attr, onPatch, onRemove }) {
   const [type, setType] = useState(attr.type ?? attr.tipo ?? "string");
   const [required, setRequired] = useState(!!attr.required);
   const { save: saveNow, status: statusNow, error: errorNow } = useAutoSave(0);
+  // Cada campo de texto con su propio guardado: las llamadas seguidas a un
+  // mismo save() se reemplazan, y no queremos que una pise a la otra.
+  const { save: saveMult, error: errorMult } = useAutoSave();
+  const { save: saveDefault, error: errorDefault } = useAutoSave();
 
   // Sincroniza si el valor cambió en el servidor (otro usuario, o el
   // asistente de IA) mientras no lo estamos editando nosotros.
@@ -72,27 +131,64 @@ function AttributeRow({ attr, onPatch, onRemove }) {
             setName(val);
             save(() => onPatch({ name: val }));
           }}
-          placeholder="Nombre del atributo"
+          placeholder={isLiteral ? "Literal (ej: PENDIENTE)" : "Nombre del atributo"}
         />
         <SaveStatus status={status} />
-        <button className="btn btn-danger-ghost btn-icon btn-sm" onClick={onRemove} title="Eliminar atributo">
+        <button
+          className="btn btn-danger-ghost btn-icon btn-sm"
+          onClick={onRemove}
+          title={isLiteral ? "Eliminar literal" : "Eliminar atributo"}
+        >
           <Icon name="trash" size={14} />
         </button>
       </div>
 
-      <select
-        className="select input-sm"
-        value={type}
-        onChange={(e) => {
-          const val = e.target.value;
-          setType(val);
-          saveNow(() => onPatch({ type: val }));
-        }}
-      >
-        {TYPE_OPTIONS.map((o) => (
-          <option key={o.v} value={o.v}>{o.label}</option>
-        ))}
-      </select>
+      {!isLiteral && (
+      <>
+      <div style={{ display: "grid", gridTemplateColumns: "96px 1fr", gap: "var(--sp-2)" }}>
+        <select
+          className="select input-sm"
+          value={attr.visibility ?? "-"}
+          title="Visibilidad"
+          onChange={(e) => {
+            const val = e.target.value;
+            saveNow(() => onPatch({ visibility: val }));
+          }}
+        >
+          {VISIBILITY_OPTIONS.map((o) => (
+            <option key={o.v} value={o.v}>{o.label}</option>
+          ))}
+        </select>
+        <select
+          className="select input-sm"
+          value={type}
+          onChange={(e) => {
+            const val = e.target.value;
+            setType(val);
+            saveNow(() => onPatch({ type: val }));
+          }}
+        >
+          {typeOptions(type, enumNames).map((o) => (
+            <option key={o.v} value={o.v}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "96px 1fr", gap: "var(--sp-2)" }}>
+        <DebouncedInput
+          value={attr.multiplicity ?? ""}
+          placeholder="[1]"
+          mono
+          title="Multiplicidad (ej: 0..1, 1..*, *). Vacío = exactamente 1."
+          onSave={(val) => saveMult(() => onPatch({ multiplicity: val }))}
+        />
+        <DebouncedInput
+          value={attr.default_value ?? ""}
+          placeholder="Valor inicial (opcional)"
+          title="Valor inicial: se muestra como  = valor"
+          onSave={(val) => saveDefault(() => onPatch({ default_value: val }))}
+        />
+      </div>
 
       <label
         style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", fontSize: 12, cursor: "pointer" }}
@@ -111,17 +207,47 @@ function AttributeRow({ attr, onPatch, onRemove }) {
         <SaveStatus status={statusNow} />
       </label>
 
-      <RowError message={error || errorNow} />
+      <div style={{ display: "flex", gap: "var(--sp-4)" }}>
+        <label style={rowCheck} title="Atributo de clase: se dibuja subrayado">
+          <input
+            type="checkbox"
+            checked={!!attr.is_static}
+            onChange={(e) => {
+              const val = e.target.checked;
+              saveNow(() => onPatch({ is_static: val }));
+            }}
+          />
+          <span className="text-muted">Estático</span>
+        </label>
+        <label style={rowCheck} title="Se calcula a partir de otros datos: se dibuja con / delante">
+          <input
+            type="checkbox"
+            checked={!!attr.is_derived}
+            onChange={(e) => {
+              const val = e.target.checked;
+              saveNow(() => onPatch({ is_derived: val }));
+            }}
+          />
+          <span className="text-muted">Derivado (/)</span>
+        </label>
+      </div>
+      </>
+      )}
+
+      <RowError message={error || errorNow || errorMult || errorDefault} />
     </div>
   );
 }
 
-/** Caja de un método: nombre y tipo de retorno. */
-function MethodRow({ meth, onPatch, onRemove }) {
+/** Caja de un método: nombre, parámetros, tipo de retorno y notación
+ * UML 2.5 (visibilidad, estático, abstracto). */
+function MethodRow({ meth, onPatch, onRemove, enumNames }) {
   const serverName = meth.name ?? meth.nombre ?? "";
   const [name, setName] = useState(serverName);
   const inputRef = useRef(null);
   const { save, status, error } = useAutoSave();
+  const { save: saveNow, error: errorNow } = useAutoSave(0);
+  const { save: saveParams, error: errorParams } = useAutoSave();
 
   useEffect(() => {
     if (document.activeElement !== inputRef.current) setName(serverName);
@@ -133,7 +259,7 @@ function MethodRow({ meth, onPatch, onRemove }) {
         display: "grid",
         gap: "var(--sp-2)",
         padding: "var(--sp-3)",
-        border: `1px solid ${error ? "var(--danger)" : "var(--border)"}`,
+        border: `1px solid ${error || errorNow ? "var(--danger)" : "var(--border)"}`,
         borderRadius: "var(--radius)",
         background: "var(--surface-2)",
       }}
@@ -156,18 +282,68 @@ function MethodRow({ meth, onPatch, onRemove }) {
         </button>
       </div>
 
-      <select
-        className="select input-sm"
-        value={meth.return_type ?? "void"}
-        onChange={(e) => save(() => onPatch({ return_type: e.target.value }))}
-      >
-        <option value="void">Sin retorno (void)</option>
-        {TYPE_OPTIONS.filter((o) => o.v !== "uuid").map((o) => (
-          <option key={o.v} value={o.v}>{o.label}</option>
-        ))}
-      </select>
+      <DebouncedInput
+        value={meth.params ?? ""}
+        placeholder="Parámetros (ej: id: int, nombre: string)"
+        mono
+        title="Parámetros de la operación: nombre: tipo, separados por coma"
+        onSave={(val) => saveParams(() => onPatch({ params: val }))}
+      />
 
-      <RowError message={error} />
+      <div style={{ display: "grid", gridTemplateColumns: "96px 1fr", gap: "var(--sp-2)" }}>
+        <select
+          className="select input-sm"
+          value={meth.visibility ?? "+"}
+          title="Visibilidad"
+          onChange={(e) => {
+            const val = e.target.value;
+            saveNow(() => onPatch({ visibility: val }));
+          }}
+        >
+          {VISIBILITY_OPTIONS.map((o) => (
+            <option key={o.v} value={o.v}>{o.label}</option>
+          ))}
+        </select>
+        <select
+          className="select input-sm"
+          value={meth.return_type ?? "void"}
+          onChange={(e) => save(() => onPatch({ return_type: e.target.value }))}
+        >
+          <option value="void">Sin retorno (void)</option>
+          {typeOptions(meth.return_type === "void" ? null : meth.return_type, enumNames)
+            .filter((o) => o.v !== "uuid")
+            .map((o) => (
+              <option key={o.v} value={o.v}>{o.label}</option>
+            ))}
+        </select>
+      </div>
+
+      <div style={{ display: "flex", gap: "var(--sp-4)" }}>
+        <label style={rowCheck} title="Operación de clase: se dibuja subrayada">
+          <input
+            type="checkbox"
+            checked={!!meth.is_static}
+            onChange={(e) => {
+              const val = e.target.checked;
+              saveNow(() => onPatch({ is_static: val }));
+            }}
+          />
+          <span className="text-muted">Estático</span>
+        </label>
+        <label style={rowCheck} title="Sin implementación en esta clase: se dibuja en cursiva">
+          <input
+            type="checkbox"
+            checked={!!meth.is_abstract}
+            onChange={(e) => {
+              const val = e.target.checked;
+              saveNow(() => onPatch({ is_abstract: val }));
+            }}
+          />
+          <span className="text-muted">Abstracto</span>
+        </label>
+      </div>
+
+      <RowError message={error || errorNow || errorParams} />
     </div>
   );
 }
@@ -186,11 +362,14 @@ export default function Inspector({
   onAddMeth,
   onPatchMeth,
   onRemoveMeth,
+  onKindChange,
+  enumNames = [],
 }) {
   const [name, setName] = useState("");
   const [addError, setAddError] = useState("");
   const nameRef = useRef(null);
   const { save: saveName, status: nameStatus, error: nameError } = useAutoSave();
+  const { save: saveKind, status: kindStatus, error: kindError } = useAutoSave(0);
 
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === "1");
   useEffect(() => {
@@ -323,12 +502,37 @@ export default function Inspector({
           <RowError message={nameError} />
         </div>
 
+        {/* ---------- Tipo de clase (UML 2.5) ---------- */}
+        <div className="field">
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
+            <label className="label" style={{ flex: 1 }}>Tipo</label>
+            <SaveStatus status={kindStatus} />
+          </div>
+          <select
+            className="select"
+            value={selected.kind ?? "class"}
+            disabled={!onKindChange}
+            onChange={(e) => {
+              const val = e.target.value;
+              saveKind(() => onKindChange(selected.id, val));
+            }}
+          >
+            {KIND_OPTIONS.map((k) => (
+              <option key={k.v} value={k.v}>{k.label}</option>
+            ))}
+          </select>
+          <div className="text-subtle" style={{ fontSize: 12 }}>
+            {KIND_OPTIONS.find((k) => k.v === (selected.kind ?? "class"))?.ayuda}
+          </div>
+          <RowError message={kindError} />
+        </div>
+
         {/* ---------- Atributos ---------- */}
         <div style={{ display: "grid", gap: "var(--sp-3)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
             <h4 className="section-title" style={{ flex: 1 }}>
               <Icon name="attribute" size={13} />
-              Atributos
+              {selected.kind === "enumeration" ? "Literales" : "Atributos"}
             </h4>
             <button
               className="btn btn-ghost btn-icon btn-sm"
@@ -350,8 +554,9 @@ export default function Inspector({
             <div className="text-muted" style={{ fontSize: 12 }}>Cargando…</div>
           ) : details.attrs.length === 0 ? (
             <div className="text-subtle" style={{ fontSize: 12 }}>
-              Esta clase no tiene atributos. Cada atributo se convierte en una columna de la
-              tabla al generar el backend.
+              {selected.kind === "enumeration"
+                ? "Esta enumeración no tiene literales. Agregá uno por cada valor posible."
+                : "Esta clase no tiene atributos. Cada atributo se convierte en una columna de la tabla al generar el backend."}
             </div>
           ) : (
             <div style={{ display: "grid", gap: "var(--sp-3)" }}>
@@ -359,6 +564,8 @@ export default function Inspector({
                 <AttributeRow
                   key={a.id}
                   attr={a}
+                  enumNames={enumNames}
+                  isLiteral={selected.kind === "enumeration"}
                   onPatch={(patch) => onPatchAttr(selected.id, a.id, patch)}
                   onRemove={() => onRemoveAttr(selected.id, a.id)}
                 />
@@ -392,6 +599,7 @@ export default function Inspector({
                 <MethodRow
                   key={m.id}
                   meth={m}
+                  enumNames={enumNames}
                   onPatch={(patch) => onPatchMeth(selected.id, m.id, patch)}
                   onRemove={() => onRemoveMeth(selected.id, m.id)}
                 />

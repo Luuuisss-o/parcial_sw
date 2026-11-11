@@ -77,6 +77,10 @@ async def create_relation(
             mult_destino_min=body.dst_mult_min,
             mult_destino_max=body.dst_mult_max,
             es_clase_asociacion=body.es_clase_asociacion,
+            rol_origen=body.src_role,
+            rol_destino=body.dst_role,
+            navegable_origen=body.src_navigable,
+            navegable_destino=body.dst_navigable,
         )
         db.add(r)
         d.updated_at = func.now()
@@ -173,6 +177,16 @@ async def update_relation(
             r.mult_destino_min = body.dst_mult_min
         if "dst_mult_max" in body.__fields_set__:
             r.mult_destino_max = body.dst_mult_max
+
+        # ⚡️ Roles y navegabilidad (UML 2.5)
+        if "src_role" in body.__fields_set__:
+            r.rol_origen = body.src_role
+        if "dst_role" in body.__fields_set__:
+            r.rol_destino = body.dst_role
+        if body.src_navigable is not None:
+            r.navegable_origen = body.src_navigable
+        if body.dst_navigable is not None:
+            r.navegable_destino = body.dst_navigable
         r.diagram.updated_at = func.now()
         db.commit(); db.refresh(r)
 
@@ -249,6 +263,10 @@ def get_relation(
         "dst_mult_min": r.mult_destino_min,
         "dst_mult_max": r.mult_destino_max,
         "es_clase_asociacion": r.es_clase_asociacion,
+        "src_role": r.rol_origen,
+        "dst_role": r.rol_destino,
+        "src_navigable": r.navegable_origen,
+        "dst_navigable": r.navegable_destino,
         "origen_nombre": origen_nombre,
         "destino_nombre": destino_nombre,
     }

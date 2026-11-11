@@ -123,6 +123,7 @@ export default function ConnectionLayer({
       case "AGGREGATION":
       case "COMPOSITION":
       case "DEPENDENCY":
+      case "REALIZATION":
         return t.toUpperCase();
       default:
         return "ASSOCIATION";
@@ -142,9 +143,30 @@ export default function ConnectionLayer({
     dstMax: r.dst_mult_max ?? r.mult_destino_max ?? null,
     label: r.label ?? r.etiqueta ?? null,
     esClaseAsociacion: r.es_clase_asociacion ?? false,
+    // UML 2.5: nombre de rol y navegabilidad de cada extremo
+    srcRole: r.src_role ?? r.rol_origen ?? null,
+    dstRole: r.dst_role ?? r.rol_destino ?? null,
+    srcNav: r.src_navigable ?? r.navegable_origen ?? false,
+    dstNav: r.dst_navigable ?? r.navegable_destino ?? false,
   });
 
-  const fmtMult = (min, max) => `${min ?? 0}..${max == null ? "*" : max}`;
+  // UML: "1" en vez de "1..1" y "*" en vez de "0..*".
+  const fmtMult = (min, max) => {
+    const lo = min ?? 0;
+    if (max == null) return lo === 0 ? "*" : `${lo}..*`;
+    return lo === max ? `${lo}` : `${lo}..${max}`;
+  };
+
+  // El nombre de rol va del otro lado de la línea que la multiplicidad.
+  const roleOffset = (side) => {
+    switch (side) {
+      case "left": return { dx: -10, dy: 13, anchor: "end" };
+      case "right": return { dx: 10, dy: 13, anchor: "start" };
+      case "top": return { dx: 8, dy: -20, anchor: "start" };
+      case "bottom": return { dx: 8, dy: 27, anchor: "start" };
+      default: return { dx: 8, dy: 13, anchor: "start" };
+    }
+  };
 
   const labelOffset = (side) => {
     switch (side) {
@@ -343,6 +365,10 @@ export default function ConnectionLayer({
             <marker id={`diamond-filled${suffix}`} viewBox="0 0 24 14" refX="22" refY="7" markerWidth="11" markerHeight="6.5" orient="auto-start-reverse">
               <path d="M 1 7 L 12 1 L 23 7 L 12 13 z" fill={color} />
             </marker>
+            {/* Flecha abierta (UML 2.5): dependencia y navegabilidad. */}
+            <marker id={`arrow-open${suffix}`} viewBox="0 0 12 12" refX="11" refY="6" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <path d="M 1 1 L 11 6 L 1 11" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </marker>
           </g>
         ))}
       </defs>
@@ -373,6 +399,7 @@ export default function ConnectionLayer({
           filter: isSelected ? "url(#rel-glow)" : undefined,
         };
         let markerEnd = null;
+        let markerStart = null;
 
         switch (seg.type) {
           case "ASSOCIATION":
@@ -393,11 +420,25 @@ export default function ConnectionLayer({
             markerEnd = `url(#diamond-filled${suffix})`;
             break;
           case "DEPENDENCY":
+            // UML 2.5: punteada con flecha ABIERTA hacia el proveedor.
             lineProps.strokeDasharray = "6,4";
-            markerEnd = `url(#arrow-normal${suffix})`;
+            markerEnd = `url(#arrow-open${suffix})`;
+            break;
+          case "REALIZATION":
+            // UML 2.5: punteada con triángulo hueco hacia la interfaz.
+            lineProps.strokeDasharray = "6,4";
+            markerEnd = `url(#arrow-hollow${suffix})`;
             break;
           default:
             markerEnd = null;
+        }
+
+        // Navegabilidad (UML 2.5): flecha abierta en el extremo navegable.
+        // En agregación/composición el rombo ya ocupa el extremo destino.
+        const esAsociacion = ["ASSOCIATION", "AGGREGATION", "COMPOSITION"].includes(seg.type);
+        if (esAsociacion && !seg.isAssociationClassLink) {
+          if (seg.dstNav && !markerEnd) markerEnd = `url(#arrow-open${suffix})`;
+          if (seg.srcNav) markerStart = `url(#arrow-open${suffix})`;
         }
 
         const labelStyle = {
@@ -410,7 +451,9 @@ export default function ConnectionLayer({
         // subtipo es exactamente uno del supertipo, y una dependencia es
         // un uso puntual, no una cardinalidad) -- mismo criterio que ya
         // aplica RelationInspector para ocultar esos campos en el panel.
-        const sinMultiplicidad = seg.type === "INHERITANCE" || seg.type === "DEPENDENCY" || seg.isAssociationClassLink;
+        const sinMultiplicidad = ["INHERITANCE", "GENERALIZATION", "DEPENDENCY", "REALIZATION"].includes(seg.type) || seg.isAssociationClassLink;
+        const ro = roleOffset(seg.srcA);
+        const rd = roleOffset(seg.dstA);
 
         const labels = (
           <>
@@ -422,6 +465,16 @@ export default function ConnectionLayer({
                 <text x={b.x + dof.dx} y={b.y + dof.dy} fontSize="10" textAnchor={dof.anchor} style={labelStyle}>
                   {fmtMult(seg.dstMin, seg.dstMax)}
                 </text>
+                {seg.srcRole && (
+                  <text x={a.x + ro.dx} y={a.y + ro.dy} fontSize="10" fontStyle="italic" textAnchor={ro.anchor} style={labelStyle}>
+                    {seg.srcRole}
+                  </text>
+                )}
+                {seg.dstRole && (
+                  <text x={b.x + rd.dx} y={b.y + rd.dy} fontSize="10" fontStyle="italic" textAnchor={rd.anchor} style={labelStyle}>
+                    {seg.dstRole}
+                  </text>
+                )}
               </>
             )}
             {seg.label && (
@@ -479,7 +532,7 @@ export default function ConnectionLayer({
           const d = recursivePath(seg);
           return (
             <g key={seg.id}>
-              <path d={d} {...lineProps} fill="none" markerEnd={markerEnd} />
+              <path d={d} {...lineProps} fill="none" markerEnd={markerEnd} markerStart={markerStart} />
               <path d={d} {...hitProps} fill="none" />
               {labels}
             </g>
@@ -488,7 +541,7 @@ export default function ConnectionLayer({
 
         return (
           <g key={seg.id}>
-            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} {...lineProps} markerEnd={markerEnd} />
+            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} {...lineProps} markerEnd={markerEnd} markerStart={markerStart} />
             <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} {...hitProps} />
             {labels}
             {endpointHandles}
