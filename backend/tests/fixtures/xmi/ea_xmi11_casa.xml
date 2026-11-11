@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="windows-1252"?>
+<!--
+  Modelo "Casa" en el formato XMI 1.1 (UML 1.3) de Enterprise Architect,
+  la otra opción de su exportación. ESCRITO A MANO siguiendo ese formato,
+  no exportado por EA. Antes el importador solo leía XMI 2.x.
+-->
+<XMI xmi.version="1.1" xmlns:UML="omg.org/UML1.3" timestamp="2026-11-11 14:15:00">
+	<XMI.header>
+		<XMI.documentation>
+			<XMI.exporter>Enterprise Architect</XMI.exporter>
+			<XMI.exporterVersion>2.5</XMI.exporterVersion>
+		</XMI.documentation>
+	</XMI.header>
+	<XMI.content>
+		<UML:Model name="EA Model" xmi.id="MX_EAID_MODEL">
+			<UML:Namespace.ownedElement>
+				<UML:Class name="EARootClass" xmi.id="EAID_11111111_5487_4080_A7F4_41526CB0AA00" isRoot="true" isLeaf="false" isAbstract="false"/>
+				<UML:Package name="Diagrama importado" xmi.id="EAPK_DIAGRAMA" isRoot="false" isLeaf="false" isAbstract="false" visibility="public">
+					<UML:Namespace.ownedElement>
+						<UML:Class name="Casa" xmi.id="EAID_CASA" visibility="public" namespace="EAPK_DIAGRAMA" isRoot="false" isLeaf="false" isAbstract="false" isActive="false">
+							<UML:Classifier.feature>
+								<UML:Attribute name="AreaCuadrada" changeable="none" visibility="public" ownerScope="instance" targetScope="instance">
+									<UML:Attribute.initialValue>
+										<UML:Expression/>
+									</UML:Attribute.initialValue>
+									<UML:StructuralFeature.type>
+										<UML:Classifier xmi.idref="eaxmiid0"/>
+									</UML:StructuralFeature.type>
+									<UML:ModelElement.taggedValue>
+										<UML:TaggedValue tag="type" value="Number"/>
+										<UML:TaggedValue tag="derived" value="0"/>
+										<UML:TaggedValue tag="ea_guid" value="{A1}"/>
+									</UML:ModelElement.taggedValue>
+								</UML:Attribute>
+								<UML:Operation name="Vender" visibility="public" ownerScope="instance" isQuery="false" concurrency="sequential">
+									<UML:ModelElement.taggedValue>
+										<UML:TaggedValue tag="type" value="void"/>
+									</UML:ModelElement.taggedValue>
+									<UML:BehavioralFeature.parameter>
+										<UML:Parameter kind="return" visibility="public">
+											<UML:Parameter.type>
+												<UML:Classifier xmi.idref="eaxmiid1"/>
+											</UML:Parameter.type>
+										</UML:Parameter>
+									</UML:BehavioralFeature.parameter>
+								</UML:Operation>
+							</UML:Classifier.feature>
+						</UML:Class>
+						<UML:Class name="Calefactor" xmi.id="EAID_CALEFACTOR" visibility="public" isAbstract="false">
+							<UML:Classifier.feature>
+								<UML:Attribute name="Temperatura" visibility="private" ownerScope="instance">
+									<UML:ModelElement.taggedValue>
+										<UML:TaggedValue tag="type" value="Number"/>
+									</UML:ModelElement.taggedValue>
+								</UML:Attribute>
+								<UML:Operation name="FijarTemperatura" visibility="public" ownerScope="instance">
+									<UML:BehavioralFeature.parameter>
+										<UML:Parameter kind="return"><UML:ModelElement.taggedValue><UML:TaggedValue tag="type" value="void"/></UML:ModelElement.taggedValue></UML:Parameter>
+										<UML:Parameter name="valor" kind="in">
+											<UML:Parameter.type><UML:Classifier xmi.idref="eaxmiid0"/></UML:Parameter.type>
+										</UML:Parameter>
+									</UML:BehavioralFeature.parameter>
+								</UML:Operation>
+							</UML:Classifier.feature>
+						</UML:Class>
+						<UML:Class name="Puerta" xmi.id="EAID_PUERTA" visibility="public" isAbstract="false">
+							<UML:Classifier.feature>
+								<UML:Attribute name="EsDeMadera" visibility="public" ownerScope="instance">
+									<UML:ModelElement.taggedValue>
+										<UML:TaggedValue tag="type" value="Boolean"/>
+									</UML:ModelElement.taggedValue>
+								</UML:Attribute>
+							</UML:Classifier.feature>
+						</UML:Class>
+						<UML:Association xmi.id="EAID_AS_PUERTA_CASA" visibility="public" isRoot="false" isLeaf="false" isAbstract="false">
+							<UML:ModelElement.taggedValue>
+								<UML:TaggedValue tag="ea_type" value="Aggregation"/>
+								<UML:TaggedValue tag="subtype" value="Strong"/>
+							</UML:ModelElement.taggedValue>
+							<UML:Association.connection>
+								<UML:AssociationEnd visibility="public" multiplicity="1" aggregation="none" isOrdered="false" isNavigable="true" type="EAID_PUERTA">
+									<UML:ModelElement.taggedValue>
+										<UML:TaggedValue tag="ea_end" value="source"/>
+									</UML:ModelElement.taggedValue>
+								</UML:AssociationEnd>
+								<UML:AssociationEnd visibility="public" multiplicity="1" aggregation="composite" isOrdered="false" isNavigable="true" type="EAID_CASA">
+									<UML:ModelElement.taggedValue>
+										<UML:TaggedValue tag="ea_end" value="target"/>
+									</UML:ModelElement.taggedValue>
+								</UML:AssociationEnd>
+							</UML:Association.connection>
+						</UML:Association>
+						<UML:Association xmi.id="EAID_AS_CALEF_CASA" name="calienta" visibility="public">
+							<UML:Association.connection>
+								<UML:AssociationEnd visibility="public" multiplicity="0..*" aggregation="none" isNavigable="false" type="EAID_CALEFACTOR" name="calefactores">
+									<UML:ModelElement.taggedValue><UML:TaggedValue tag="ea_end" value="source"/></UML:ModelElement.taggedValue>
+								</UML:AssociationEnd>
+								<UML:AssociationEnd visibility="public" multiplicity="1" aggregation="none" isNavigable="true" type="EAID_CASA">
+									<UML:ModelElement.taggedValue><UML:TaggedValue tag="ea_end" value="target"/></UML:ModelElement.taggedValue>
+								</UML:AssociationEnd>
+							</UML:Association.connection>
+						</UML:Association>
+						<UML:Class name="Vivienda" xmi.id="EAID_VIVIENDA" visibility="public" isAbstract="true"/>
+						<UML:Generalization subtype="EAID_CASA" supertype="EAID_VIVIENDA" xmi.id="EAID_GEN" visibility="public"/>
+					</UML:Namespace.ownedElement>
+				</UML:Package>
+				<UML:DataType xmi.id="eaxmiid0" name="Number" visibility="private" isRoot="false" isLeaf="false" isAbstract="false"/>
+				<UML:DataType xmi.id="eaxmiid1" name="void" visibility="private" isRoot="false" isLeaf="false" isAbstract="false"/>
+			</UML:Namespace.ownedElement>
+		</UML:Model>
+	</XMI.content>
+</XMI>

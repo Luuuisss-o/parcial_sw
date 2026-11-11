@@ -507,18 +507,33 @@ def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
+def _is_xmi_attr(key: str) -> bool:
+    """¿El atributo está en el espacio de nombres XMI, de cualquier versión?
+    EA 16/17 exporta XMI 2.5.1 (http://www.omg.org/spec/XMI/20131001); antes
+    solo se aceptaba el de XMI 2.1 y un archivo así daba "No se encontró
+    ninguna uml:Class" aunque estuviera lleno de clases."""
+    return key.startswith("{") and "xmi" in key[1:key.index("}")].lower()
+
+
 def _xmi_type(el: ET.Element) -> str | None:
     """Valor crudo de xmi:type (ej. 'uml:Class'), sin tocar el prefijo: los
     llamadores comparan contra 'uml:Class', 'uml:Association', etc."""
     for key, val in el.attrib.items():
-        if _local(key) == "type" and key.startswith("{" + XMI_NS):
+        if _local(key) == "type" and _is_xmi_attr(key):
             return val
     return None
 
 
 def _xmi_id(el: ET.Element) -> str | None:
     for key, val in el.attrib.items():
-        if _local(key) == "id" and key.startswith("{" + XMI_NS):
+        if _local(key) == "id" and _is_xmi_attr(key):
+            return val
+    return None
+
+
+def _xmi_idref(el: ET.Element) -> str | None:
+    for key, val in el.attrib.items():
+        if _local(key) == "idref" and (_is_xmi_attr(key) or key == "xmi:idref"):
             return val
     return None
 
@@ -594,7 +609,7 @@ def _resolve_return_type(op_el: ET.Element, by_id: dict[str, ET.Element]) -> str
                     break
             if type_el is not None:
                 href = type_el.get("href")
-                idref = type_el.get(f"{{{XMI_NS}}}idref") or type_el.get("xmi:idref")
+                idref = _xmi_idref(type_el)
                 if href:
                     raw = href.rsplit("#", 1)[-1]
                 elif idref and idref in by_id:
@@ -608,6 +623,161 @@ def _resolve_return_type(op_el: ET.Element, by_id: dict[str, ET.Element]) -> str
     return "void"
 
 
+def _is_xmi_1x(tree: ET.Element) -> bool:
+    """XMI 1.x (UML 1.3): la otra opción de exportación de Enterprise
+    Architect. Raíz <XMI xmi.version="1.1">, con clases <UML:Class xmi.id=...>."""
+    return _local(tree.tag) == "XMI" and str(tree.get("xmi.version", "")).startswith("1")
+
+
+def _tagged(el: ET.Element) -> dict[str, str]:
+    """Valores etiquetados de EA en XMI 1.x: <UML:TaggedValue tag=... value=...>."""
+    out = {}
+    for tv in el.iter():
+        if _local(tv.tag) == "TaggedValue" and tv.get("tag") is not None:
+            out.setdefault(tv.get("tag"), tv.get("value") or "")
+    return out
+
+
+def _direct(el: ET.Element, *path: str):
+    """Hijos siguiendo nombres locales: _direct(clase, "Classifier.feature", "Attribute")."""
+    level = [el]
+    for name in path:
+        level = [c for p in level for c in p if _local(c.tag) == name]
+    return level
+
+
+def _parse_mult_1x(text: str | None) -> tuple[int, int | None]:
+    t = (text or "").strip()
+    if not t:
+        return 1, 1
+    if ".." in t:
+        lo, hi = t.split("..", 1)
+    else:
+        lo, hi = ("0", "*") if t == "*" else (t, t)
+    try:
+        lo_i = int(lo)
+    except ValueError:
+        lo_i = 1
+    if hi.strip() in ("*", "n", "N", "-1"):
+        return lo_i, None
+    try:
+        return lo_i, int(hi)
+    except ValueError:
+        return lo_i, 1
+
+
+def _parse_xmi_1x(tree: ET.Element) -> ImportResult:
+    result = ImportResult()
+    by_id = {el.get("xmi.id"): el for el in tree.iter() if el.get("xmi.id")}
+
+    def stereotype(el):
+        st = [s.get("name", "").lower() for s in _direct(el, "ModelElement.stereotype", "Stereotype")]
+        return (st[0] if st else "") or _tagged(el).get("stereotype", "").lower()
+
+    def type_name(feature, fallback):
+        tv = _tagged(feature).get("type")
+        if tv:
+            return _normalize_type(tv)
+        for ref in _direct(feature, "StructuralFeature.type", "Classifier") + _direct(feature, "Parameter.type", "Classifier"):
+            target = by_id.get(ref.get("xmi.idref", ""))
+            if target is not None and target.get("name"):
+                return _normalize_type(target.get("name"))
+        return fallback
+
+    name_by_id: dict[str, str] = {}
+    for el in tree.iter():
+        tag = _local(el.tag)
+        if tag not in ("Class", "Interface", "Enumeration") or not el.get("xmi.id") or not el.get("name"):
+            continue
+        # EA agrega una <UML:Class name="EARootClass"> de servicio: no es del modelo.
+        if el.get("isRoot") == "true" and el.get("name", "").startswith("EARoot"):
+            continue
+        st = stereotype(el)
+        if tag == "Interface" or st == "interface":
+            kind = "interface"
+        elif tag == "Enumeration" or st in ("enumeration", "enum"):
+            kind = "enumeration"
+        elif el.get("isAbstract") == "true":
+            kind = "abstract"
+        else:
+            kind = "class"
+        ic = ImportedClass(xmi_id=el.get("xmi.id"), name=el.get("name"), kind=kind)
+        for attr in _direct(el, "Classifier.feature", "Attribute"):
+            if not attr.get("name"):
+                continue
+            init = _direct(attr, "Attribute.initialValue", "Expression")
+            mult = _tagged(attr).get("multiplicity") or None
+            ic.attributes.append(ImportedAttribute(
+                name=attr.get("name"),
+                type=type_name(attr, "string"),
+                visibility=_VISIBILITY_FROM_XMI.get(attr.get("visibility") or "private", "-"),
+                is_static=attr.get("ownerScope") == "classifier",
+                is_derived=_tagged(attr).get("derived") in ("1", "true"),
+                multiplicity=mult if mult and mult not in ("1", "1..1") else None,
+                default_value=(init[0].get("body") or None) if init else None,
+            ))
+        for lit in _direct(el, "Enumeration.literal", "EnumerationLiteral"):
+            if lit.get("name"):
+                ic.attributes.append(ImportedAttribute(name=lit.get("name"), type="string", visibility="+"))
+        for op in _direct(el, "Classifier.feature", "Operation"):
+            if not op.get("name"):
+                continue
+            params, ret = [], "void"
+            for p in _direct(op, "BehavioralFeature.parameter", "Parameter"):
+                if p.get("kind") == "return":
+                    ret = type_name(p, "void")
+                elif p.get("name"):
+                    params.append(f"{p.get('name')}: {type_name(p, 'string')}")
+            ic.methods.append(ImportedMethod(
+                name=op.get("name"),
+                return_type=_tagged(op).get("type") and _normalize_type(_tagged(op)["type"]) or ret,
+                visibility=_VISIBILITY_FROM_XMI.get(op.get("visibility") or "public", "+"),
+                is_static=op.get("ownerScope") == "classifier",
+                is_abstract=op.get("isAbstract") == "true",
+                params=", ".join(params),
+            ))
+        result.classes.append(ic)
+        name_by_id[ic.xmi_id] = ic.name
+
+    def rel(frm, to, typ, **kw):
+        if frm in name_by_id and to in name_by_id:
+            result.relations.append(ImportedRelation(from_name=name_by_id[frm], to_name=name_by_id[to],
+                                                     type=typ, **kw))
+
+    for el in tree.iter():
+        tag = _local(el.tag)
+        if tag == "Generalization":
+            rel(el.get("subtype"), el.get("supertype"), "INHERITANCE")
+        elif tag in ("Dependency", "Abstraction", "Realization"):
+            realize = tag != "Dependency" or stereotype(el) in ("realize", "realization")
+            rel(el.get("client"), el.get("supplier"), "REALIZATION" if realize else "DEPENDENCY",
+                label=el.get("name") or None)
+        elif tag == "Association":
+            ends = _direct(el, "Association.connection", "AssociationEnd")
+            if len(ends) != 2:
+                continue
+            # EA marca cada extremo como source/target; si no, se respeta el orden.
+            ea_end = {(_tagged(e).get("ea_end") or ""): e for e in ends}
+            src, dst = (ea_end["source"], ea_end["target"]) if {"source", "target"} <= set(ea_end) else ends
+            # UML 1.x: la agregación va en el extremo del TODO; en el editor el
+            # todo es el destino (rombo en el destino).
+            agg = next((e.get("aggregation") for e in (src, dst) if e.get("aggregation") not in (None, "none")), "none")
+            if agg != "none" and src.get("aggregation") not in (None, "none"):
+                src, dst = dst, src
+            typ = {"composite": "COMPOSITION", "aggregate": "AGGREGATION", "shared": "AGGREGATION"}.get(agg, "ASSOCIATION")
+            s_min, s_max = _parse_mult_1x(src.get("multiplicity"))
+            d_min, d_max = _parse_mult_1x(dst.get("multiplicity"))
+            rel(src.get("type"), dst.get("type"), typ, label=el.get("name") or None,
+                src_mult_min=s_min, src_mult_max=s_max, dst_mult_min=d_min, dst_mult_max=d_max,
+                src_role=src.get("name") or None, dst_role=dst.get("name") or None,
+                src_navigable=src.get("isNavigable") == "true" and dst.get("isNavigable") != "true",
+                dst_navigable=dst.get("isNavigable") == "true" and src.get("isNavigable") != "true")
+
+    if not result.classes:
+        result.warnings.append("No se encontró ninguna clase en el archivo XMI 1.1.")
+    return result
+
+
 def parse_xmi(xml_bytes: bytes) -> ImportResult:
     result = ImportResult()
     try:
@@ -615,6 +785,8 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
     except ET.ParseError as e:
         result.warnings.append(f"El archivo no es XML valido: {e}")
         return result
+    if _is_xmi_1x(tree):
+        return _parse_xmi_1x(tree)
 
     by_id: dict[str, ET.Element] = {}
     for el in tree.iter():
@@ -895,7 +1067,7 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
         if len(ends) < 2:
             # Estilo alternativo: memberEnd apunta a Property definidas afuera
             # (a veces dentro de cada clase en vez de en la asociacion).
-            end_ids = [c.get(f"{{{XMI_NS}}}idref") for c in el if _local(c.tag) == "memberEnd"]
+            end_ids = [_xmi_idref(c) for c in el if _local(c.tag) == "memberEnd"]
             ends = [by_id[i] for i in end_ids if i in by_id]
 
         if len(ends) != 2:
@@ -910,7 +1082,7 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
                 return name_by_id[type_id]
             for child in end:
                 if _local(child.tag) == "type":
-                    idref = child.get(f"{{{XMI_NS}}}idref") or child.get("href", "").rsplit("#", 1)[-1]
+                    idref = _xmi_idref(child) or child.get("href", "").rsplit("#", 1)[-1]
                     return name_by_id.get(idref)
             return None
 
@@ -936,7 +1108,7 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
                 return end.get("type")
             for child in end:
                 if _local(child.tag) == "type":
-                    return child.get(f"{{{XMI_NS}}}idref") or child.get("href", "").rsplit("#", 1)[-1]
+                    return _xmi_idref(child) or child.get("href", "").rsplit("#", 1)[-1]
             return None
 
         agg_ends = [e for e in ends if e.get("aggregation", "none") != "none"]

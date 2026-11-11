@@ -84,3 +84,36 @@ def test_notacion_uml25_de_otras_herramientas():
     assert pagar.params == "monto: float" and pagar.return_type == "boolean" and pagar.is_abstract
 
     assert [(x.from_name, x.to_name, x.type) for x in r.relations] == [("Factura", "Pagable", "REALIZATION")]
+
+
+# ---------------------------------------------------------------- otras versiones de XMI de EA
+def test_xmi_251_de_ea_16_17():
+    """Mismo modelo en XMI 2.5.1 (otro espacio de nombres): antes daba "No se
+    encontró ninguna uml:Class"."""
+    r = parse_xmi((FIX / "ea_xmi251_casa.xmi").read_bytes())
+    assert sorted(c.name for c in r.classes) == ["Casa", "Puerta", "Ventana"]
+    tipos = {a.name: a.type for c in r.classes for a in c.attributes}
+    # "Number" de EA -> decimal (el generador lo hace BigDecimal, no String)
+    assert tipos == {"AreaCuadrada": "decimal", "EsDeMadera": "boolean", "Marco": "string"}
+    assert [m.name for c in r.classes for m in c.methods] == ["Vender"]
+    rels = {(x.from_name, x.to_name, x.type): (x.src_mult_min, x.src_mult_max) for x in r.relations}
+    assert rels == {("Puerta", "Casa", "COMPOSITION"): (1, 1), ("Ventana", "Casa", "COMPOSITION"): (1, None)}
+
+
+def test_xmi_11_uml13_de_ea():
+    """XMI 1.1 (UML 1.3), la otra opción de exportación de EA."""
+    r = parse_xmi((FIX / "ea_xmi11_casa.xml").read_bytes())
+    clases = {c.name: c for c in r.classes}
+    assert set(clases) == {"Casa", "Calefactor", "Puerta", "Vivienda"}  # sin la EARootClass de servicio
+    assert clases["Vivienda"].kind == "abstract"
+    assert [(a.name, a.type, a.visibility) for a in clases["Casa"].attributes] == [("AreaCuadrada", "decimal", "+")]
+    assert clases["Calefactor"].attributes[0].visibility == "-"
+    op = clases["Calefactor"].methods[0]
+    assert (op.name, op.params, op.return_type) == ("FijarTemperatura", "valor: decimal", "void")
+    rels = {(x.from_name, x.to_name, x.type): x for x in r.relations}
+    comp = rels[("Puerta", "Casa", "COMPOSITION")]  # el rombo (todo) en Casa
+    assert (comp.src_mult_min, comp.src_mult_max, comp.dst_mult_max) == (1, 1, 1)
+    asoc = rels[("Calefactor", "Casa", "ASSOCIATION")]
+    assert (asoc.src_mult_min, asoc.src_mult_max) == (0, None) and asoc.label == "calienta"
+    assert asoc.src_role == "calefactores" and asoc.dst_navigable and not asoc.src_navigable
+    assert ("Casa", "Vivienda", "INHERITANCE") in rels
