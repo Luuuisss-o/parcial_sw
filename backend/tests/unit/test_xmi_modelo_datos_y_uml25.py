@@ -117,3 +117,16 @@ def test_xmi_11_uml13_de_ea():
     assert (asoc.src_mult_min, asoc.src_mult_max) == (0, None) and asoc.label == "calienta"
     assert asoc.src_role == "calefactores" and asoc.dst_navigable and not asoc.src_navigable
     assert ("Casa", "Vivienda", "INHERITANCE") in rels
+
+
+def test_xmi_11_real_exportado_por_ea_17():
+    """El archivo REAL que exportó EA (XMI 1.1) y daba "No se encontró
+    ninguna uml:Class" al importarlo en la web: el modelo de la casa."""
+    r = parse_xmi((FIX / "ea17_xmi11_casa_real.xmi").read_bytes())
+    clases = {c.name: c for c in r.classes}
+    # "Number" es un tipo de dato de EA (ea_stype=DataType), no una clase
+    assert set(clases) == {"Casa", "Puerta", "Ventana", "Persiana", "Calefactor"}
+    assert [m.name for m in clases["Calefactor"].methods] and clases["Casa"].attributes[0].name == "AreaCuadrada"
+    rels = {(x.from_name, x.type, x.to_name) for x in r.relations}
+    assert rels == {("Puerta", "COMPOSITION", "Casa"), ("Calefactor", "COMPOSITION", "Casa"),
+                    ("Ventana", "COMPOSITION", "Casa"), ("Persiana", "COMPOSITION", "Ventana")}

@@ -692,10 +692,17 @@ def _parse_xmi_1x(tree: ET.Element) -> ImportResult:
         # EA agrega una <UML:Class name="EARootClass"> de servicio: no es del modelo.
         if el.get("isRoot") == "true" and el.get("name", "").startswith("EARoot"):
             continue
+        # Tipo de elemento según EA (valor etiquetado del propio elemento, no
+        # de sus atributos): los tipos de dato ("Number") EA los exporta como
+        # <UML:Class> con ea_stype=DataType, y no son clases del modelo.
+        ea_stype = next((tv.get("value") for tv in _direct(el, "ModelElement.taggedValue", "TaggedValue")
+                         if tv.get("tag") == "ea_stype"), "") or ""
+        if ea_stype in ("DataType", "PrimitiveType", "Note", "Text", "Boundary"):
+            continue
         st = stereotype(el)
-        if tag == "Interface" or st == "interface":
+        if tag == "Interface" or st == "interface" or ea_stype == "Interface":
             kind = "interface"
-        elif tag == "Enumeration" or st in ("enumeration", "enum"):
+        elif tag == "Enumeration" or st in ("enumeration", "enum") or ea_stype == "Enumeration":
             kind = "enumeration"
         elif el.get("isAbstract") == "true":
             kind = "abstract"
