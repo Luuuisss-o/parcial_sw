@@ -8,8 +8,10 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models/diagram.dart';
 import 'brand.dart';
+import 'package:image_picker/image_picker.dart';
 import 'diagram_screen.dart';
 import 'login_screen.dart';
+import 'photo_import_screen.dart';
 
 class DiagramListScreen extends StatefulWidget {
   const DiagramListScreen({super.key});
@@ -105,6 +107,53 @@ class _DiagramListScreenState extends State<DiagramListScreen> {
     );
   }
 
+  /// Importar un diagrama desde una foto: cámara o galería (selector del
+  /// sistema), y la revisión en PhotoImportScreen antes de crear nada.
+  Future<void> _importFromPhoto() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
+                child: Text(
+                  'Importar un diagrama de clases o de base de datos',
+                  style: TextStyle(fontWeight: FontWeight.w800, color: BrandColors.ink),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined, color: BrandColors.teal),
+                title: const Text('Sacar una foto'),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined, color: BrandColors.teal),
+                title: const Text('Elegir de la galería'),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+    // Hasta 10 MB acepta el backend: se achica la foto de la cámara.
+    final picked = await ImagePicker().pickImage(source: source, maxWidth: 2400, imageQuality: 85);
+    if (picked == null || !mounted) return;
+    final bytes = await picked.readAsBytes();
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => PhotoImportScreen(bytes: bytes, filename: picked.name)),
+    );
+    if (mounted) _refresh();
+  }
+
   void _open(Diagram d) {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => DiagramScreen(diagramId: d.id, title: d.title)),
@@ -141,6 +190,12 @@ class _DiagramListScreenState extends State<DiagramListScreen> {
                           ? '1 diagrama · deslizá hacia abajo para actualizar.'
                           : '$n diagramas · deslizá hacia abajo para actualizar.',
                   actions: [
+                    BrandHeaderButton(
+                      icon: Icons.photo_camera_outlined,
+                      tooltip: 'Importar desde foto',
+                      onPressed: _importFromPhoto,
+                    ),
+                    const SizedBox(width: 8),
                     BrandHeaderButton(icon: Icons.logout_rounded, tooltip: 'Cerrar sesión', onPressed: _logout),
                   ],
                 );

@@ -1,6 +1,7 @@
 # app/routers/vision.py
 """
-Importar un diagrama de clases dibujado a mano a partir de una foto.
+Importar un diagrama a partir de una foto o captura: de clases UML o de
+base de datos (tablas con PK/FK, pata de gallo, Chen), ver diagram_vision.py.
 
 Flujo en dos pasos, no uno: el usuario sube la foto, Gemini transcribe lo
 que ve y el resultado se le devuelve SIN aplicar a ningun diagrama todavia
@@ -86,26 +87,41 @@ def apply(
     db.commit()
     db.refresh(diagram)
 
-    executor = DiagramToolExecutor(db, diagram)
+    executor = DiagramToolExecutor(db, diagram, actor_email=me.email)
     summary = VisionApplySummary(diagram_id=str(diagram.id))
 
-    # Posiciones en grilla: una fila de clases espaciadas, simple y
-    # predecible -- el usuario las reacomoda a gusto una vez importadas.
-    x, y = 0, 0
-    for c in body.classes:
+    # Posiciones en grilla de 3 columnas (como el import de XMI): un diagrama
+    # de base de datos suele traer varias tablas y en una sola fila quedaban
+    # fuera de la pantalla. El usuario las reacomoda a gusto después.
+    COLS, COL_W, ROW_H = 3, 18, 16
+    for idx, c in enumerate(body.classes):
         try:
-            executor.create_class(name=c.name, x_grid=x, y_grid=y)
+            executor.create_class(name=c.name, x_grid=(idx % COLS) * COL_W, y_grid=(idx // COLS) * ROW_H,
+                                  kind=c.kind)
             summary.classes_created.append(c.name)
         except ToolError as e:
             summary.warnings.append(str(e))
             continue
-        finally:
-            x += 16
 
         for attr in c.attributes:
             try:
-                executor.add_attribute(class_name=c.name, name=attr.name, type=attr.type, required=attr.required)
+                executor.add_attribute(
+                    class_name=c.name, name=attr.name, type=attr.type, required=attr.required,
+                    visibility=attr.visibility, is_static=attr.is_static, is_derived=attr.is_derived,
+                    multiplicity=attr.multiplicity, default_value=attr.default_value,
+                )
                 summary.attributes_created += 1
+            except ToolError as e:
+                summary.warnings.append(str(e))
+
+        for m in c.methods:
+            try:
+                executor.add_method(
+                    class_name=c.name, name=m.name, return_type=m.return_type or "void",
+                    visibility=m.visibility, is_static=m.is_static, is_abstract=m.is_abstract,
+                    params=m.params,
+                )
+                summary.methods_created += 1
             except ToolError as e:
                 summary.warnings.append(str(e))
 
@@ -118,6 +134,10 @@ def apply(
                 label=r.label,
                 src_multiplicity=r.src_multiplicity,
                 dst_multiplicity=r.dst_multiplicity,
+                src_role=r.src_role,
+                dst_role=r.dst_role,
+                src_navigable=r.src_navigable,
+                dst_navigable=r.dst_navigable,
             )
             summary.relations_created += 1
         except ToolError as e:
@@ -131,6 +151,7 @@ def apply(
     logger.info(
         f"[vision apply] diagram_id={diagram.id} user={me.id} "
         f"clases={len(summary.classes_created)} atributos={summary.attributes_created} "
+        f"metodos={summary.methods_created} "
         f"relaciones={summary.relations_created}"
     )
     return summary

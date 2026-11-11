@@ -434,6 +434,12 @@ class DiagramToolExecutor:
 
         src_min, src_max = _parse_multiplicity(src_multiplicity)
         dst_min, dst_max = _parse_multiplicity(dst_multiplicity)
+        if rel_type in (RelType.INHERITANCE, RelType.DEPENDENCY, RelType.REALIZATION):
+            # No son asociaciones: sin multiplicidad, roles ni navegabilidad
+            # (igual que el esquema de la API REST, ver schemas/relacion.py).
+            src_min, src_max, dst_min, dst_max = 1, 1, 1, 1
+            src_role = dst_role = None
+            src_navigable = dst_navigable = False
 
         r = Relacion(
             diagram_id=self.diagram.id,

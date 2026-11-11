@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="windows-1252"?>
+<!--
+  Modelo de datos (Data Modeling) al estilo de Enterprise Architect: tablas
+  «table» con columnas «column», y la PK / FK como operaciones «PK» / «FK»
+  (asi las guarda EA). ESCRITO A MANO siguiendo el formato de XMI 2.1 de EA,
+  no exportado por EA: sirve para probar el import de un modelo de base de
+  datos, no reemplaza una prueba con un archivo real de EA.
+-->
+<xmi:XMI xmi:version="2.1" xmlns:uml="http://schema.omg.org/spec/UML/2.1" xmlns:xmi="http://schema.omg.org/spec/XMI/2.1">
+	<xmi:Documentation exporter="Enterprise Architect" exporterVersion="6.5"/>
+	<uml:Model xmi:type="uml:Model" name="EA_Model" visibility="public">
+		<packagedElement xmi:type="uml:Package" xmi:id="EAPK_DM" name="Modelo de datos" visibility="public">
+			<packagedElement xmi:type="uml:Class" xmi:id="EAID_T_CLIENTE" name="cliente" visibility="public">
+				<ownedAttribute xmi:type="uml:Property" xmi:id="EAID_C_CLI_ID" name="id" visibility="public" isStatic="false" isReadOnly="false" isDerived="false" isOrdered="false" isUnique="true" isDerivedUnion="false">
+					<lowerValue xmi:type="uml:LiteralInteger" xmi:id="EAID_LI1" value="1"/>
+					<upperValue xmi:type="uml:LiteralUnlimitedNatural" xmi:id="EAID_LI2" value="1"/>
+				</ownedAttribute>
+				<ownedAttribute xmi:type="uml:Property" xmi:id="EAID_C_CLI_NOMBRE" name="nombre" visibility="public" isStatic="false" isReadOnly="false" isDerived="false" isOrdered="false" isUnique="true" isDerivedUnion="false"/>
+				<ownedAttribute xmi:type="uml:Property" xmi:id="EAID_C_CLI_ALTA" name="fecha_alta" visibility="public" isStatic="false" isReadOnly="false" isDerived="false" isOrdered="false" isUnique="true" isDerivedUnion="false"/>
+				<ownedOperation xmi:id="EAID_O_PK_CLIENTE" name="PK_cliente" visibility="public" concurrency="sequential">
+					<ownedParameter xmi:id="EAID_P1" name="id" direction="in" type="EAnone_INTEGER"/>
+				</ownedOperation>
+			</packagedElement>
+			<packagedElement xmi:type="uml:Class" xmi:id="EAID_T_PEDIDO" name="pedido" visibility="public">
+				<ownedAttribute xmi:type="uml:Property" xmi:id="EAID_C_PED_ID" name="id" visibility="public" isStatic="false" isReadOnly="false" isDerived="false" isOrdered="false" isUnique="true" isDerivedUnion="false"/>
+				<ownedAttribute xmi:type="uml:Property" xmi:id="EAID_C_PED_TOTAL" name="total" visibility="public" isStatic="false" isReadOnly="false" isDerived="false" isOrdered="false" isUnique="true" isDerivedUnion="false"/>
+				<ownedAttribute xmi:type="uml:Property" xmi:id="EAID_C_PED_FECHA" name="fecha" visibility="public" isStatic="false" isReadOnly="false" isDerived="false" isOrdered="false" isUnique="true" isDerivedUnion="false"/>
+				<ownedAttribute xmi:type="uml:Property" xmi:id="EAID_C_PED_CLI" name="cliente_id" visibility="public" isStatic="false" isReadOnly="false" isDerived="false" isOrdered="false" isUnique="true" isDerivedUnion="false"/>
+				<ownedOperation xmi:id="EAID_O_PK_PEDIDO" name="PK_pedido" visibility="public" concurrency="sequential">
+					<ownedParameter xmi:id="EAID_P2" name="id" direction="in" type="EAnone_BIGINT"/>
+				</ownedOperation>
+				<ownedOperation xmi:id="EAID_O_FK_PEDIDO_CLIENTE" name="FK_pedido_cliente" visibility="public" concurrency="sequential">
+					<ownedParameter xmi:id="EAID_P3" name="cliente_id" direction="in" type="EAnone_INTEGER"/>
+				</ownedOperation>
+				<ownedOperation xmi:id="EAID_O_IX_PEDIDO_FECHA" name="IX_pedido_fecha" visibility="public" concurrency="sequential">
+					<ownedParameter xmi:id="EAID_P4" name="fecha" direction="in" type="EAnone_TIMESTAMP"/>
+				</ownedOperation>
+			</packagedElement>
+			<packagedElement xmi:type="uml:Association" xmi:id="EAID_A_FK" name="FK_pedido_cliente" visibility="public">
+				<memberEnd xmi:idref="EAID_dst_FK"/>
+				<memberEnd xmi:idref="EAID_src_FK"/>
+				<ownedEnd xmi:type="uml:Property" xmi:id="EAID_src_FK" visibility="public" association="EAID_A_FK" isStatic="false" isReadOnly="false" isDerived="false" isOrdered="false" isUnique="true" isDerivedUnion="false" aggregation="none">
+					<type xmi:idref="EAID_T_PEDIDO"/>
+					<lowerValue xmi:type="uml:LiteralInteger" xmi:id="EAID_LI3" value="0"/>
+					<upperValue xmi:type="uml:LiteralUnlimitedNatural" xmi:id="EAID_LI4" value="-1"/>
+				</ownedEnd>
+				<ownedEnd xmi:type="uml:Property" xmi:id="EAID_dst_FK" visibility="public" association="EAID_A_FK" isStatic="false" isReadOnly="false" isDerived="false" isOrdered="false" isUnique="true" isDerivedUnion="false" aggregation="none">
+					<type xmi:idref="EAID_T_CLIENTE"/>
+					<lowerValue xmi:type="uml:LiteralInteger" xmi:id="EAID_LI5" value="1"/>
+					<upperValue xmi:type="uml:LiteralUnlimitedNatural" xmi:id="EAID_LI6" value="1"/>
+				</ownedEnd>
+			</packagedElement>
+		</packagedElement>
+	</uml:Model>
+	<xmi:Extension extender="Enterprise Architect" extenderID="6.5">
+		<elements>
+			<element xmi:idref="EAID_T_CLIENTE" xmi:type="uml:Class" name="cliente" scope="public">
+				<properties isSpecification="false" sType="Class" nType="0" scope="public" stereotype="table" isRoot="false" isLeaf="false" isAbstract="false" isActive="false"/>
+				<attributes>
+					<attribute xmi:idref="EAID_C_CLI_ID" name="id" scope="Public">
+						<stereotype stereotype="column"/>
+						<properties type="INTEGER" precision="0" collection="false" length="0" static="0" duplicates="0" changeability="changeable"/>
+					</attribute>
+					<attribute xmi:idref="EAID_C_CLI_NOMBRE" name="nombre" scope="Public">
+						<stereotype stereotype="column"/>
+						<properties type="VARCHAR" length="80" collection="false" static="0" duplicates="0" changeability="changeable"/>
+					</attribute>
+					<attribute xmi:idref="EAID_C_CLI_ALTA" name="fecha_alta" scope="Public">
+						<stereotype stereotype="column"/>
+						<properties type="DATE" collection="false" static="0" duplicates="0" changeability="changeable"/>
+					</attribute>
+				</attributes>
+				<operations>
+					<operation xmi:idref="EAID_O_PK_CLIENTE" name="PK_cliente" scope="Public">
+						<stereotype stereotype="PK"/>
+					</operation>
+				</operations>
+			</element>
+			<element xmi:idref="EAID_T_PEDIDO" xmi:type="uml:Class" name="pedido" scope="public">
+				<properties isSpecification="false" sType="Class" nType="0" scope="public" stereotype="table" isRoot="false" isLeaf="false" isAbstract="false" isActive="false"/>
+				<attributes>
+					<attribute xmi:idref="EAID_C_PED_ID" name="id" scope="Public">
+						<stereotype stereotype="column"/>
+						<properties type="BIGINT" collection="false" static="0" duplicates="0" changeability="changeable"/>
+					</attribute>
+					<attribute xmi:idref="EAID_C_PED_TOTAL" name="total" scope="Public">
+						<stereotype stereotype="column"/>
+						<properties type="NUMERIC" precision="10" scale="2" collection="false" static="0" duplicates="0" changeability="changeable"/>
+					</attribute>
+					<attribute xmi:idref="EAID_C_PED_FECHA" name="fecha" scope="Public">
+						<stereotype stereotype="column"/>
+						<properties type="TIMESTAMP" collection="false" static="0" duplicates="0" changeability="changeable"/>
+					</attribute>
+					<attribute xmi:idref="EAID_C_PED_CLI" name="cliente_id" scope="Public">
+						<stereotype stereotype="column"/>
+						<properties type="INTEGER" collection="false" static="0" duplicates="0" changeability="changeable"/>
+					</attribute>
+				</attributes>
+				<operations>
+					<operation xmi:idref="EAID_O_PK_PEDIDO" name="PK_pedido" scope="Public">
+						<stereotype stereotype="PK"/>
+					</operation>
+					<operation xmi:idref="EAID_O_FK_PEDIDO_CLIENTE" name="FK_pedido_cliente" scope="Public">
+						<stereotype stereotype="FK"/>
+					</operation>
+					<operation xmi:idref="EAID_O_IX_PEDIDO_FECHA" name="IX_pedido_fecha" scope="Public">
+						<stereotype stereotype="index"/>
+					</operation>
+				</operations>
+			</element>
+		</elements>
+		<connectors>
+			<connector xmi:idref="EAID_A_FK">
+				<source xmi:idref="EAID_T_PEDIDO">
+					<type multiplicity="0..*" aggregation="none"/>
+				</source>
+				<target xmi:idref="EAID_T_CLIENTE">
+					<type multiplicity="1" aggregation="none"/>
+				</target>
+				<properties ea_type="Association" stereotype="FK" direction="Source -&gt; Destination"/>
+			</connector>
+		</connectors>
+	</xmi:Extension>
+</xmi:XMI>

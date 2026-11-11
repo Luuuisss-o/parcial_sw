@@ -68,6 +68,23 @@ _FROM_LOCAL_DATATYPE = {
     "date": "date", "datetime": "datetime",
     "double": "double", "decimal": "decimal", "long": "long",
 }
+# Tipos SQL de un modelo de datos de Enterprise Architect (tablas «table» con
+# columnas «column»): sin esto BIGINT, NUMERIC o VARCHAR llegaban tal cual y
+# el generador los convertía todos en String.
+_FROM_SQL_TYPE = {
+    "varchar": "string", "varchar2": "string", "nvarchar": "string", "char": "string", "nchar": "string",
+    "character varying": "string", "text": "text", "clob": "text", "longtext": "text", "mediumtext": "text",
+    "int": "int", "integer": "int", "smallint": "int", "tinyint": "int", "serial": "int", "mediumint": "int",
+    "bigint": "long", "bigserial": "long", "number": "decimal", "numeric": "decimal", "money": "decimal",
+    "real": "float", "double precision": "double", "bit": "boolean", "bool": "boolean",
+    "timestamp": "datetime", "timestamptz": "datetime", "smalldatetime": "datetime", "datetime2": "datetime",
+    "uuid": "uuid", "uniqueidentifier": "uuid", "guid": "uuid",
+}
+
+# Restricciones de base de datos que EA modela como OPERACIONES de la tabla
+# («PK», «FK», «unique», «index»...): no son métodos del modelo de clases.
+_DB_CONSTRAINT_STEREOTYPES = {"pk", "fk", "unique", "index", "check", "trigger"}
+_DB_CONSTRAINT_PREFIXES = ("PK_", "FK_", "IX_", "IDX_", "UQ_", "UK_", "CK_", "TRG_")
 
 _AGGREGATION_BY_TYPE = {
     RelType.COMPOSITION: "composite",
@@ -451,7 +468,9 @@ def _normalize_type(raw: str) -> str:
         if raw.startswith(prefix):
             raw = raw[len(prefix):]
     key = raw.lower()
-    return _FROM_UML_PRIMITIVE.get(key) or _FROM_LOCAL_DATATYPE.get(key) or raw
+    sql_key = key.split("(", 1)[0].strip()  # VARCHAR(80) -> varchar
+    return (_FROM_UML_PRIMITIVE.get(key) or _FROM_LOCAL_DATATYPE.get(key)
+            or _FROM_SQL_TYPE.get(sql_key) or raw)
 
 
 def _resolve_return_type(op_el: ET.Element, by_id: dict[str, ET.Element]) -> str:
@@ -518,6 +537,18 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
         props = next((c for c in el if _local(c.tag) == "properties"), None)
         if ref and props is not None and props.get("type"):
             ext_attr_types[ref] = props.get("type")
+
+    # Estereotipo de cada operacion segun la extension de EA
+    # (xmi:Extension/.../operation/stereotype@stereotype): «PK», «FK»... en
+    # un modelo de datos.
+    ext_op_stereotype: dict[str, str] = {}
+    for el in tree.iter():
+        if _local(el.tag) != "operation":
+            continue
+        ref = next((v for k, v in el.attrib.items() if _local(k) == "idref"), None)
+        st = next((c for c in el if _local(c.tag) == "stereotype"), None)
+        if ref and st is not None and st.get("stereotype"):
+            ext_op_stereotype[ref] = st.get("stereotype").strip().lower()
 
     # --- Clases + atributos ---
     # EA representa una clase de asociacion (UML 2.5: la relacion
@@ -591,11 +622,23 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
                 multiplicity=multiplicity,
                 default_value=default,
             ))
+        pk_columns: set[str] = set()
+        fk_columns: set[str] = set()
         for op_el in el:
             if _local(op_el.tag) != "ownedOperation":
                 continue
             op_name = op_el.get("name")
             if not op_name:
+                continue
+            stereo = ext_op_stereotype.get(_xmi_id(op_el) or "", "")
+            if stereo in _DB_CONSTRAINT_STEREOTYPES or op_name.upper().startswith(_DB_CONSTRAINT_PREFIXES):
+                # Restriccion de base de datos: sus parametros son las columnas.
+                cols = {p.get("name") for p in op_el
+                        if _local(p.tag) == "ownedParameter" and p.get("direction") != "return" and p.get("name")}
+                if stereo == "pk" or op_name.upper().startswith("PK_"):
+                    pk_columns |= cols
+                elif stereo == "fk" or op_name.upper().startswith("FK_"):
+                    fk_columns |= cols
                 continue
             params = []
             for p_el in op_el:
@@ -610,6 +653,14 @@ def parse_xmi(xml_bytes: bytes) -> ImportResult:
                 is_abstract=op_el.get("isAbstract") == "true",
                 params=", ".join(params),
             ))
+        # Modelo de datos: la PK es obligatoria, y las columnas FK no se
+        # importan como atributos -- la relacion (asociacion «FK») ya las
+        # representa y el backend generado crea esa columna a partir de ella.
+        if pk_columns or fk_columns:
+            ic.attributes = [a for a in ic.attributes if a.name not in fk_columns or a.name in pk_columns]
+            for a in ic.attributes:
+                if a.name in pk_columns:
+                    a.required = True
         classes_by_id[xid] = ic
         name_by_id[xid] = name
 

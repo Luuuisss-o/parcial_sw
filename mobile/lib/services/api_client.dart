@@ -6,6 +6,7 @@
 
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart' show MediaType;
 import '../config.dart';
 import '../models/chat.dart';
 import '../models/diagram.dart';
@@ -27,8 +28,7 @@ class ApiClient {
   /// igual que la web (frontend/src/api/client.js): se cierra la sesión.
   void Function()? onUnauthorized;
 
-  Uri _u(String path, [Map<String, dynamic>? query]) =>
-      Uri.parse('${AppConfig.apiBaseUrl}$path').replace(
+  Uri _u(String path, [Map<String, dynamic>? query]) => Uri.parse('${AppConfig.apiBaseUrl}$path').replace(
         queryParameters: query?.map((k, v) => MapEntry(k, '$v')),
       );
 
@@ -98,6 +98,39 @@ class ApiClient {
     final resp = await http.delete(_u('/diagrams/$diagramId/collaborators/$userId'), headers: _headers);
     _decodeOrThrow(resp);
   }
+
+  // ---------------------------------------------------------------
+  // Importar desde foto (misma API que la web: /vision/detect y /vision/apply)
+  // ---------------------------------------------------------------
+
+  /// Sube la imagen y devuelve lo que la IA leyó, SIN crear nada todavía:
+  /// {source, classes, relations, warning}. El usuario lo revisa antes.
+  Future<Map<String, dynamic>> detectDiagramFromImage(List<int> bytes, String filename) async {
+    final ext = filename.split('.').last.toLowerCase();
+    final mime = switch (ext) {
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      'heic' => 'image/heic',
+      'heif' => 'image/heif',
+      _ => 'image/jpeg',
+    };
+    final req = http.MultipartRequest('POST', _u('/vision/detect'))
+      ..headers.addAll({if (auth.token != null) 'Authorization': 'Bearer ${auth.token}'})
+      ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename, contentType: MediaType.parse(mime)));
+    final resp = await http.Response.fromStream(await req.send());
+    return _decodeOrThrow(_utf8(resp)) as Map<String, dynamic>;
+  }
+
+  /// Crea el diagrama nuevo con lo que el usuario confirmó. Devuelve
+  /// {diagram_id, classes_created, ...}.
+  Future<Map<String, dynamic>> applyDetectedDiagram(Map<String, dynamic> body) async {
+    final resp = await http.post(_u('/vision/apply'), headers: _headers, body: jsonEncode(body));
+    return _decodeOrThrow(_utf8(resp)) as Map<String, dynamic>;
+  }
+
+  /// La respuesta es JSON en UTF-8 aunque el header no declare el charset
+  /// (si no, los nombres con tilde llegarían mal decodificados).
+  http.Response _utf8(http.Response r) => http.Response(utf8.decode(r.bodyBytes), r.statusCode, headers: r.headers);
 
   // ---------------------------------------------------------------
   // Clases
@@ -237,8 +270,7 @@ class ApiClient {
 
   /// `answerOnDevice`: la consulta a la IA la responde el modelo local de
   /// ESTE celular (el servidor no llama a ningún modelo).
-  Future<ChatMessage> sendChat(String diagramId, String text,
-      {bool askAi = false, bool answerOnDevice = false}) async {
+  Future<ChatMessage> sendChat(String diagramId, String text, {bool askAi = false, bool answerOnDevice = false}) async {
     final resp = await http.post(
       _u('/diagrams/$diagramId/chat'),
       headers: _headers,

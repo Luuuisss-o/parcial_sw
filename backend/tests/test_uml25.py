@@ -273,3 +273,46 @@ def test_generador_ignora_interfaces_enumeraciones_y_realizaciones(client, h, mo
     src = z.read(pedido).decode()
     # derivado y estático no son columnas
     assert " total;" not in src and " contador;" not in src
+
+
+# ---------------------------------------------------------------- foto
+def test_import_desde_foto_crea_toda_la_notacion(client, h):
+    """Lo que el usuario confirma en la revisión de la foto (acá, sin
+    Gemini: el cuerpo ya revisado) se crea con toda la notación UML 2.5, y
+    una realización queda sin multiplicidad."""
+    body = {
+        "title": "Desde foto - UML 2.5",
+        "classes": [
+            {"name": "Pagable", "kind": "interface", "methods": [
+                {"name": "pagar", "params": "monto: double", "return_type": "boolean", "is_abstract": True}]},
+            {"name": "Factura", "kind": "abstract", "attributes": [
+                {"name": "contador", "type": "int", "visibility": "+", "is_static": True},
+                {"name": "saldo", "type": "double", "is_derived": True, "default_value": "0"}]},
+            {"name": "Linea", "attributes": [{"name": "cantidad", "type": "int", "required": True}]},
+            {"name": "Estado", "kind": "enumeration", "attributes": [{"name": "ABIERTA", "type": "string"}]},
+        ],
+        "relations": [
+            {"from_class": "Factura", "to_class": "Pagable", "type": "REALIZATION"},
+            {"from_class": "Linea", "to_class": "Factura", "type": "COMPOSITION",
+             "src_multiplicity": "1..*", "dst_multiplicity": "1", "src_role": "lineas"},
+        ],
+    }
+    r = client.post("/vision/apply", json=body, headers=h)
+    assert r.status_code == 200, r.text
+    s = r.json()
+    assert s["methods_created"] == 1 and s["relations_created"] == 2 and s["warnings"] == []
+
+    did = s["diagram_id"]
+    clases = {c["nombre"]: c for c in client.get(f"/diagrams/{did}/classes", headers=h).json()}
+    assert {n: c["tipo_clase"] for n, c in clases.items()} == {
+        "Pagable": "interface", "Factura": "abstract", "Linea": "class", "Estado": "enumeration"}
+    pagar = clases["Pagable"]["metodos"][0]
+    assert pagar["parametros"] == "monto: double" and pagar["es_abstracto"] is True
+    attrs = {a["nombre"]: a for a in clases["Factura"]["atributos"]}
+    assert attrs["contador"]["es_estatico"] and attrs["saldo"]["es_derivado"] and attrs["saldo"]["valor_inicial"] == "0"
+
+    rels = {r["tipo"]: r for r in client.get(f"/diagrams/{did}/relations", headers=h).json()}
+    real = rels["REALIZATION"]
+    assert (real["mult_origen_min"], real["mult_origen_max"], real["mult_destino_max"]) == (1, 1, 1)
+    comp = rels["COMPOSITION"]
+    assert (comp["mult_origen_min"], comp["mult_origen_max"]) == (1, "*") and comp["rol_origen"] == "lineas"

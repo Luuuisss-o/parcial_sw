@@ -73,6 +73,12 @@ dependencies:
   # de voz (texto a voz y voz a texto son motores separados).
   flutter_tts: ^4.2.5
 
+  # ---- Importar un diagrama desde una foto ----
+  # Cámara o galería (selector del sistema: no hace falta pedir el permiso de
+  # cámara en el manifest) y el tipo de la imagen al subirla a /vision/detect.
+  image_picker: ^1.2.4
+  http_parser: ^4.1.2
+
   cupertino_icons: ^1.0.8
 
 dev_dependencies:
