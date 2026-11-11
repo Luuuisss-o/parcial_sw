@@ -13,6 +13,45 @@ import { getAnchorForClassSide, getClassRectById, inferClosestSide } from "./uti
 const DEFAULT_COLOR = "var(--relation-line)";
 const SELECTED_COLOR = "#e0902a";
 
+/**
+ * Varias relaciones que llegan al MISMO lado de una clase caían todas en el
+ * punto medio de ese lado: sus rombos (composición/agregación) o flechas se
+ * dibujaban uno encima del otro, como una mancha. Acá se reparten a lo largo
+ * del lado, ordenadas según dónde está la otra clase (así las líneas no se
+ * cruzan entre sí). Las recursivas y las de la clase de asociación (en T)
+ * no se tocan: tienen su propia geometría.
+ */
+function spreadSharedAnchors(segs) {
+  const groups = new Map(); // "classId|lado" -> [{ seg, end, other }]
+  for (const seg of segs) {
+    if (seg.recursive || seg.isAssociationClassLink || seg.isAssociationClassSolid) continue;
+    for (const [end, classId, side, other] of [
+      ["a", seg.fromId, seg.srcA, seg.b],
+      ["b", seg.toId, seg.dstA, seg.a],
+    ]) {
+      const key = `${classId}|${side}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push({ seg, end, other });
+    }
+  }
+  for (const [key, items] of groups) {
+    if (items.length < 2) continue;
+    const [classId, side] = key.split("|");
+    const rect = getClassRectById(classId);
+    if (!rect) continue;
+    const vertical = side === "left" || side === "right"; // el lado corre de arriba hacia abajo
+    items.sort((p, q) => (vertical ? p.other.y - q.other.y : p.other.x - q.other.x));
+    const n = items.length;
+    items.forEach((it, i) => {
+      const t = (i + 1) / (n + 1);
+      const point = vertical
+        ? { x: side === "left" ? rect.left : rect.right, y: rect.top + t * rect.height }
+        : { x: rect.left + t * rect.width, y: side === "top" ? rect.top : rect.bottom };
+      it.seg[it.end] = point;
+    });
+  }
+}
+
 export default function ConnectionLayer({
   classes,
   tempLink = null,
@@ -295,6 +334,7 @@ export default function ConnectionLayer({
       if (!a || !b) continue;
       segs.push({ ...r, a, b, recursive: r.fromId === r.toId });
     }
+    spreadSharedAnchors(segs);
     return segs;
   }, [relations, classes, camera, geometryTick]);
 

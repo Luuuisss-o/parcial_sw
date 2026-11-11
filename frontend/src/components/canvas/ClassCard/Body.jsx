@@ -44,6 +44,11 @@ function formatAttribute(a) {
 }
 
 /** Texto UML de un método, sin la visibilidad. */
+// Las tarjetas del lienzo muestran solo los atributos: el compartimento de
+// operaciones se ocultó a pedido (los métodos siguen guardados y se editan
+// en el panel derecho; también viajan al XMI y al generador).
+const SHOW_METHODS = false;
+
 function formatMethod(m) {
   return `${m.name ?? m.nombre}(${m.params ?? ""}) : ${m.return_type ?? m.tipo_retorno ?? "void"}`;
 }
@@ -75,7 +80,7 @@ export default function Body({ innerRef, showDetails, details, size, kind = "cla
           {esEnum ? "Sin literales" : "Sin atributos"}
         </div>
       ) : (
-        <ul style={lista}>
+        <ul style={{ ...lista, margin: 0 }}>
           {details.attrs.map((a) =>
             esEnum ? (
               <li key={a.id} style={item}>{a.name ?? a.nombre}</li>
@@ -97,7 +102,7 @@ export default function Body({ innerRef, showDetails, details, size, kind = "cla
       )}
 
       {/* En una enumeración el compartimento de métodos se omite si está vacío. */}
-      {!(esEnum && details.meths.length === 0) && (
+      {SHOW_METHODS && !(esEnum && details.meths.length === 0) && (
         <>
           <div style={seccion}>Métodos</div>
           {details.meths.length === 0 ? (
