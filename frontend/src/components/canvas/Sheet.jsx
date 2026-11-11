@@ -1,7 +1,14 @@
  
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import Icon from "../common/Icon";
 
 export const SHEET = { CELL: 16 };
+
+// Zoom: entre 25 % y 200 %, de a 10 % por paso (rueda o botones).
+const MIN_Z = 0.25;
+const MAX_Z = 2;
+const STEP = 1.1;
+const clampZ = (z) => Math.min(MAX_Z, Math.max(MIN_Z, z));
 
 export default function Sheet({ children, onCanvasClick, onEmptyClick, onCameraChange, onCursorMove, remoteCursors = [] }) {
   const { CELL } = SHEET;
@@ -10,14 +17,58 @@ export default function Sheet({ children, onCanvasClick, onEmptyClick, onCameraC
   const panning = useRef(false);
   const last = useRef({ x: 0, y: 0 });
 
-  const onWheel = useCallback((e) => {
-    e.preventDefault();
-    const delta = Math.sign(e.deltaY) * 0.1;
+  // Zoom manteniendo fijo el punto (px, py) de la vista: lo que está bajo el
+  // puntero (o en el centro, con los botones) queda en el mismo lugar.
+  const zoomAt = useCallback((factor, px, py) => {
     setCam((c) => {
-      const z = Math.min(1.5, Math.max(0.5, c.z - delta)); // clamp
-      return { ...c, z };
+      const z = clampZ(c.z * factor);
+      const k = z / c.z;
+      return { x: px - (px - c.x) * k, y: py - (py - c.y) * k, z };
     });
   }, []);
+
+  const viewCenter = () => {
+    const r = ref.current?.getBoundingClientRect();
+    return r ? [r.width / 2, r.height / 2] : [0, 0];
+  };
+
+  const onWheel = useCallback((e) => {
+    e.preventDefault();
+    const r = ref.current?.getBoundingClientRect();
+    const px = r ? e.clientX - r.left : 0;
+    const py = r ? e.clientY - r.top : 0;
+    zoomAt(e.deltaY < 0 ? STEP : 1 / STEP, px, py);
+  }, [zoomAt]);
+
+  const zoomIn = () => zoomAt(STEP, ...viewCenter());
+  const zoomOut = () => zoomAt(1 / STEP, ...viewCenter());
+  const resetZoom = () => setCam((c) => {
+    const [px, py] = viewCenter();
+    return { x: px - (px - c.x) / c.z, y: py - (py - c.y) / c.z, z: 1 };
+  });
+
+  // Ajustar: todas las clases a la vista, con un margen. Lee las tarjetas
+  // del DOM (su posición dentro del lienzo es en coordenadas del mundo).
+  const fitToContent = () => {
+    const el = ref.current;
+    const cards = el ? [...el.querySelectorAll("[data-class-id]")] : [];
+    if (!el || cards.length === 0) {
+      setCam({ x: 0, y: 0, z: 1 });
+      return;
+    }
+    const minX = Math.min(...cards.map((c) => c.offsetLeft));
+    const minY = Math.min(...cards.map((c) => c.offsetTop));
+    const maxX = Math.max(...cards.map((c) => c.offsetLeft + c.offsetWidth));
+    const maxY = Math.max(...cards.map((c) => c.offsetTop + c.offsetHeight));
+    const { width, height } = el.getBoundingClientRect();
+    const PAD = 48;
+    const z = clampZ(Math.min((width - 2 * PAD) / (maxX - minX || 1), (height - 2 * PAD) / (maxY - minY || 1), 1.25));
+    setCam({
+      x: (width - (maxX - minX) * z) / 2 - minX * z,
+      y: (height - (maxY - minY) * z) / 2 - minY * z,
+      z,
+    });
+  };
 
   const moved = useRef(false);
 
@@ -144,7 +195,7 @@ export default function Sheet({ children, onCanvasClick, onEmptyClick, onCameraC
         userSelect: panning.current ? "none" : undefined,
         cursor: panning.current ? "grabbing" : "grab",
       }}
-      title="Pan: arrastrá el espacio vacío, rueda o Ctrl+arrastrar | Zoom: rueda | Click: acción del padre"
+      title="Mover: arrastrá el espacio vacío (o Ctrl + arrastrar) · Zoom: rueda del mouse o la lupa de abajo"
     >
       <div
         style={{
@@ -172,6 +223,80 @@ export default function Sheet({ children, onCanvasClick, onEmptyClick, onCameraC
           ))}
         </div>
       </div>
+
+      {/* Lupa: zoom con botones (además de la rueda del mouse). */}
+      <ZoomControls
+        zoom={cam.z}
+        onZoomIn={zoomIn}
+        onZoomOut={zoomOut}
+        onReset={resetZoom}
+        onFit={fitToContent}
+      />
+    </div>
+  );
+}
+
+function ZoomControls({ zoom, onZoomIn, onZoomOut, onReset, onFit }) {
+  const btn = {
+    display: "grid",
+    placeItems: "center",
+    width: 32,
+    height: 32,
+    padding: 0,
+    border: "none",
+    borderRadius: 8,
+    background: "transparent",
+    color: "var(--text)",
+    cursor: "pointer",
+  };
+  // Que los clicks de la barra no lleguen al lienzo (no mueven la vista ni
+  // deseleccionan).
+  const stop = (e) => e.stopPropagation();
+  return (
+    <div
+      data-testid="zoom-controls"
+      onMouseDown={stop}
+      onClick={stop}
+      onWheel={stop}
+      style={{
+        position: "absolute",
+        left: 16,
+        bottom: 16,
+        zIndex: "var(--z-float)",
+        display: "flex",
+        alignItems: "center",
+        gap: 2,
+        padding: 4,
+        borderRadius: 12,
+        border: "1px solid var(--border)",
+        background: "var(--surface-1)",
+        boxShadow: "var(--shadow)",
+        cursor: "default",
+      }}
+    >
+      <button type="button" style={btn} onClick={onZoomOut} disabled={zoom <= MIN_Z + 1e-6}
+        title="Alejar" aria-label="Alejar">
+        <Icon name="zoomOut" size={18} />
+      </button>
+      <button
+        type="button"
+        onClick={onReset}
+        title="Volver al 100 %"
+        aria-label="Nivel de zoom; volver al 100 %"
+        data-testid="zoom-level"
+        style={{ ...btn, width: 52, fontSize: 12, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}
+      >
+        {Math.round(zoom * 100)} %
+      </button>
+      <button type="button" style={btn} onClick={onZoomIn} disabled={zoom >= MAX_Z - 1e-6}
+        title="Acercar" aria-label="Acercar">
+        <Icon name="zoomIn" size={18} />
+      </button>
+      <div style={{ width: 1, height: 20, background: "var(--border)", margin: "0 2px" }} />
+      <button type="button" style={btn} onClick={onFit} title="Ajustar: ver todas las clases"
+        aria-label="Ajustar a la pantalla">
+        <Icon name="fit" size={17} />
+      </button>
     </div>
   );
 }
