@@ -62,7 +62,7 @@ async def import_xmi(
     db: Session = Depends(get_db),
     me: User = Depends(get_current_user),
 ):
-    diagram = get_my_diagram(db, me, diagram_id)
+    diagram = get_my_diagram(db, me, diagram_id, edit=True)
     content = await file.read()
     if not content:
         raise HTTPException(400, "El archivo esta vacio")

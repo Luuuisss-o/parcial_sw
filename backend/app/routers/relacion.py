@@ -51,7 +51,7 @@ async def create_relation(
 ):
     logger.info(f"➕ [CREATE] relación -> diagram_id={diagram_id}, user={me.id}, body={body}")
 
-    d = get_my_diagram(db, me, diagram_id)
+    d = get_my_diagram(db, me, diagram_id, edit=True)
     src = _get_class_in_my_diagram(db, me, d.id, body.from_class)
     dst = _get_class_in_my_diagram(db, me, d.id, body.to_class)
 
@@ -147,7 +147,7 @@ async def update_relation(
     me: User = Depends(get_current_user),
 ):
     logger.info(f"✏️ [UPDATE] relación -> relation_id={relation_id}, user={me.id}, body={body}")
-    r = get_my_relation(db, me, relation_id)
+    r = get_my_relation(db, me, relation_id, edit=True)
 
     try:
         # ⚡️ Campos normales
@@ -216,7 +216,7 @@ async def delete_relation(
     me: User = Depends(get_current_user),
 ):
     logger.info(f"🗑️ [DELETE] relación -> relation_id={relation_id}, user={me.id}")
-    r = get_my_relation(db, me, relation_id)
+    r = get_my_relation(db, me, relation_id, edit=True)
 
     try:
         diagram_id = r.diagram_id

@@ -11,12 +11,18 @@ class Diagram {
   final int ownerId;
   final String ownerEmail;
 
+  /// Mi rol en el diagrama: OWNER, EDITOR o VIEWER (solo lectura).
+  final String? myRole;
+
+  bool get readOnly => myRole == 'VIEWER';
+
   Diagram({
     required this.id,
     required this.title,
     required this.updatedAt,
     required this.ownerId,
     required this.ownerEmail,
+    this.myRole,
   });
 
   factory Diagram.fromJson(Map<String, dynamic> json) => Diagram(
@@ -25,6 +31,7 @@ class Diagram {
         updatedAt: DateTime.parse(json['updated_at'] as String),
         ownerId: json['owner_id'] as int,
         ownerEmail: json['owner_email'] as String,
+        myRole: json['my_role'] as String?,
       );
 }
 
@@ -110,6 +117,7 @@ class UmlMethod {
 class UmlClass {
   final String id;
   final String name;
+
   /// UML 2.5: class | abstract | interface | enumeration
   final String kind;
   final int xGrid;

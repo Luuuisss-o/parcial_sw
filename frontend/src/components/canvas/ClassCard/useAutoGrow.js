@@ -11,6 +11,10 @@ export default function useAutoGrow({
   setSize,
   onResizeEnd,
   clsId,
+  // Cambia cuando cambia lo que muestra la tarjeta (atributos/métodos): sin
+  // esto el alto se calculaba antes de que cargaran y la tarjeta quedaba
+  // cortada hasta que algo más la redibujara (un lector nunca la toca).
+  contentKey = "",
 }) {
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const debouncedPersistRef = useRef(null);
@@ -38,5 +42,5 @@ export default function useAutoGrow({
       setSize((s) => ({ ...s, h: neededRows }));
       persistResizeDebounced(neededRows);
     }
-  }, [enabled, headerRef, bodyRef, CELL, minH, maxH, size.h, setSize, persistResizeDebounced]);
+  }, [enabled, headerRef, bodyRef, CELL, minH, maxH, size.h, setSize, persistResizeDebounced, contentKey]);
 }

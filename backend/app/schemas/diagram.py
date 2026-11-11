@@ -16,6 +16,8 @@ class DiagramOut(BaseModel):
     owner_id: int
     owner_email: str
     ai_solutions_enabled: bool = False
+    # Mi rol en este diagrama: OWNER, EDITOR o VIEWER (solo lectura).
+    my_role: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

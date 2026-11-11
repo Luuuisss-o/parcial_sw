@@ -4,6 +4,7 @@ Registro de usuarios desde el login (POST /auth/sign-up).
 Caja negra contra el backend real (localhost:8000), como test_api_qa.py.
 Las cuentas que crea usan el dominio @registro.test y se borran al final.
 """
+import random
 import uuid
 
 import httpx
@@ -14,7 +15,10 @@ BASE_URL = "http://localhost:8000"
 
 @pytest.fixture(scope="module")
 def client():
-    with httpx.Client(base_url=BASE_URL, timeout=30.0,
+    # IP propia (X-Real-IP): estas pruebas crean varias cuentas y no deben
+    # sumar al tope de cuentas nuevas por IP de las demás corridas.
+    ip = f"10.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(1, 254)}"
+    with httpx.Client(base_url=BASE_URL, timeout=30.0, headers={"X-Real-IP": ip},
                       limits=httpx.Limits(max_keepalive_connections=0)) as c:
         yield c
     # Limpieza: las cuentas de prueba no quedan en la base.
@@ -84,7 +88,7 @@ def test_dos_altas_simultaneas_con_el_mismo_correo_crean_una_sola_cuenta(client)
     codes = []
 
     def alta():
-        with httpx.Client(base_url=BASE_URL, timeout=30.0) as c:
+        with httpx.Client(base_url=BASE_URL, timeout=30.0, headers=dict(client.headers)) as c:
             codes.append(c.post("/auth/sign-up", json={"name": "Caro", "email": email,
                                                          "password": "Clave1234"}).status_code)
 

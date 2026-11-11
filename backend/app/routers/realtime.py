@@ -82,6 +82,16 @@ def _cursor_color(email: str) -> str:
     return _CURSOR_COLORS[checksum % len(_CURSOR_COLORS)]
 
 
+def _is_read_only(user_id: int, diagram_id: str) -> bool:
+    from app.routers._helpers import can_edit
+    db = SessionLocal()
+    try:
+        d = db.get(Diagram, UUID(diagram_id))
+        return d is None or not can_edit(db, user_id, d)
+    finally:
+        db.close()
+
+
 @router.websocket("/{diagram_id}/ws")
 async def websocket_endpoint(websocket: WebSocket, diagram_id: str):
     """
@@ -133,6 +143,7 @@ async def websocket_endpoint(websocket: WebSocket, diagram_id: str):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     email, name, user_id = auth
+    read_only = _is_read_only(user_id, diagram_id)
 
     conn_id = str(id(websocket))
     await ws_manager.connect(diagram_id, websocket, meta={
@@ -190,6 +201,10 @@ async def websocket_endpoint(websocket: WebSocket, diagram_id: str):
                 continue
 
             if action == "lock":
+                # Un lector no puede tomar una clase: se la bloquearía a los
+                # que sí editan.
+                if read_only:
+                    continue
                 if lock_manager.acquire(diagram_id, class_id, email, websocket):
                     await ws_manager.broadcast(diagram_id, {
                         "event": "class.locked",

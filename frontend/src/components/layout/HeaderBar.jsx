@@ -31,6 +31,7 @@ export default function HeaderBar({
   canUndo,
   onOpenCollaborators,
   onArrange,
+  readOnly = false,
 }) {
   const xmiInputRef = useRef(null);
 
@@ -72,7 +73,19 @@ export default function HeaderBar({
         </div>
       </div>
 
-      <div style={{ marginLeft: "var(--sp-4)", display: "flex", gap: "var(--sp-2)" }}>
+      <div style={{ marginLeft: "var(--sp-4)", display: "flex", gap: "var(--sp-2)", alignItems: "center" }}>
+        {readOnly && (
+          <span
+            className="badge"
+            title="El dueño te invitó con permiso de solo lectura"
+            style={{ background: "rgba(111, 224, 196, 0.15)", color: "var(--brand-mint)", height: 28, padding: "0 10px" }}
+          >
+            <Icon name="eye" size={13} />
+            Solo lectura
+          </span>
+        )}
+        {!readOnly && (
+        <>
         <button
           className={`btn ${insertMode ? "btn-active" : ""}`}
           onClick={() => setInsertMode((v) => !v)}
@@ -99,6 +112,8 @@ export default function HeaderBar({
         >
           <Icon name="relation" />
         </button>
+        </>
+        )}
 
         <button
           className="btn btn-primary"
@@ -134,7 +149,7 @@ export default function HeaderBar({
         <button
           className="btn btn-icon"
           onClick={() => xmiInputRef.current?.click()}
-          disabled={importingXmi}
+          disabled={importingXmi || readOnly}
           title="Importar un diagrama desde un archivo .xmi"
         >
           <Icon name={importingXmi ? "loader" : "upload"} className={importingXmi ? "spinning" : ""} />

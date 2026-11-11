@@ -321,9 +321,14 @@ def run_ai_question_background(question_id: UUID) -> None:
 
         try:
             team = team_context(db, diagram.id, question.seq, exclude_user_id=question.author_id)
+            # Un colaborador de solo lectura puede consultar al asesor, pero
+            # la IA no edita en su nombre: se responde siempre como mentor.
+            from app.routers._helpers import can_edit
+            read_only = not can_edit(db, question.author_id, diagram)
             result = ai_assistant.run_command(
                 db, diagram, question_text(question.content), requester=requester,
                 history=history, team_context=team,
+                mode=ai_assistant.MODE_MENTOR if read_only else None,
                 solutions_enabled=diagram.ai_solutions_enabled,
                 proposals_enabled=diagram.ai_proposals_enabled,
             )
@@ -376,6 +381,11 @@ def run_ai_question_background(question_id: UUID) -> None:
 # ---------------------------------------------------------------------------
 # Respuestas generadas en el celular (modelo local personalizado)
 # ---------------------------------------------------------------------------
+def _author_can_edit(db: Session, question: ChatMessage, diagram: Diagram) -> bool:
+    from app.routers._helpers import can_edit
+    return can_edit(db, question.author_id, diagram)
+
+
 def device_context(db: Session, question: ChatMessage, diagram: Diagram) -> dict:
     """Mismo contexto hibrido que recibe el modelo del servidor, para que el
     modelo local del celular responda con la misma memoria."""
@@ -395,7 +405,8 @@ def device_context(db: Session, question: ChatMessage, diagram: Diagram) -> dict
         ],
         "diagram": DiagramToolExecutor(db, diagram).snapshot(),
         "solutions_enabled": diagram.ai_solutions_enabled,
-        "mode": ai_assistant.classify_intent(text),
+        "mode": (ai_assistant.classify_intent(text) if _author_can_edit(db, question, diagram)
+                 else ai_assistant.MODE_MENTOR),
     }
 
 

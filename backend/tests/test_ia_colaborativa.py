@@ -167,3 +167,28 @@ def test_renombrar_a_un_nombre_que_ya_existe(equipo):
     ex.create_class("Persona")
     with pytest.raises(ToolError, match="Ya existe"):
         ex.rename_class("Persona", "cliente")
+
+
+def test_la_ia_no_edita_para_un_lector(equipo, monkeypatch):
+    """Un colaborador de solo lectura puede consultar al asesor, pero la IA no
+    modifica el diagrama en su nombre: la consulta va siempre en modo mentor
+    (sin herramientas de edición), aunque pida un cambio."""
+    db, d, users = equipo["db"], equipo["diagram"], equipo["users"]
+    lector, editor = users[1], users[2]
+    colab = db.query(DiagramCollaborator).filter_by(diagram_id=d.id, user_id=lector.id).one()
+    colab.role = CollaboratorRole.VIEWER
+    db.commit()
+
+    modos = {}
+
+    def _registrar(db_bg, diagram, user_text, requester=None, mode=None, **kw):
+        modos[requester.name] = mode
+        return AiCommandResult(reply="ok")
+
+    monkeypatch.setattr(ai_assistant, "run_command", _registrar)
+    for u in (lector, editor):
+        q = chat_service.create_user_message(db, d, u, "creá la clase Factura", asks_ai=True)
+        chat_service.run_ai_question_background(q.id)
+
+    assert modos[lector.name] == ai_assistant.MODE_MENTOR
+    assert modos[editor.name] is None  # el editor: se clasifica normalmente

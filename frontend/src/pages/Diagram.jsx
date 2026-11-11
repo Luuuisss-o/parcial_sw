@@ -48,6 +48,11 @@ export default function DiagramDashboard() {
 
   const { theme, toggleTheme } = useTheme();
   const { diagram, loading, err } = useDiagram(id);
+  // Colaborador de solo lectura: ve todo, usa el chat y exporta, pero no
+  // modifica (el backend además lo rechaza con 403).
+  const readOnly = diagram?.my_role === "VIEWER";
+  const readOnlyRef = useRef(false);
+  readOnlyRef.current = readOnly;
 
   const [linking, setLinking] = useState(null);
   const [camera, setCamera] = useState({ x: 0, y: 0, z: 1 });
@@ -135,7 +140,7 @@ export default function DiagramDashboard() {
   arrangeRef.current = arrangeOverlaps;
   const allDetailsLoaded = classes.length > 0 && classes.every((c) => detailsByClass[c.id]);
   useEffect(() => {
-    if (!diagram?.id || !allDetailsLoaded || arrangedFor.current === diagram.id) return;
+    if (!diagram?.id || readOnly || !allDetailsLoaded || arrangedFor.current === diagram.id) return;
     const t = setTimeout(async () => {
       arrangedFor.current = diagram.id;
       const n = await arrangeRef.current({ onlyIfOverlapping: true });
@@ -194,9 +199,9 @@ export default function DiagramDashboard() {
     if (lockedClassRef.current && lockedClassRef.current !== selectedId) {
       unlockClass(lockedClassRef.current);
     }
-    if (selectedId) lockClass(selectedId);
+    if (selectedId && !readOnly) lockClass(selectedId);
     lockedClassRef.current = selectedId;
-  }, [selectedId, lockClass, unlockClass]);
+  }, [selectedId, lockClass, unlockClass, readOnly]);
 
   // Al salir del diagrama (desmontar), soltar el lock que haya quedado.
   useEffect(() => {
@@ -245,6 +250,7 @@ export default function DiagramDashboard() {
       if (escribiendo) return;
 
       e.preventDefault();
+      if (readOnlyRef.current) return;
       deshacer();
     };
 
@@ -454,6 +460,7 @@ export default function DiagramDashboard() {
         canUndo={undoCount > 0}
         onOpenCollaborators={() => setShowCollaborators(true)}
         onArrange={handleArrange}
+        readOnly={readOnly}
       />
 
       <div style={{ display: "flex", minHeight: 0 }}>
@@ -579,13 +586,16 @@ export default function DiagramDashboard() {
                   setSelectedId(cid);
                   setSelectedRelId(null);
                 }}
-                onDragEnd={handleDragEnd}
-                onResizeEnd={handleResizeEnd}
+                onDragEnd={readOnly ? undefined : handleDragEnd}
+                // Un lector no guarda el alto que la tarjeta calcula sola
+                // (sería un 403 y, al recargar, otro intento: un ciclo).
+                onResizeEnd={readOnly ? undefined : handleResizeEnd}
+                readOnly={readOnly}
                 details={detailsByClass[c.id]}
                 alwaysShowDetails={true}
                 showLinkPortsOnHover={true}
                 forceShowPorts={!!linking && c.id !== linking?.fromId}
-                onStartLink={(fromId, side, pt) => setLinking({ fromId, fromSide: side, cursor: pt })}
+                onStartLink={readOnly ? undefined : (fromId, side, pt) => setLinking({ fromId, fromSide: side, cursor: pt })}
                 lockedByOther={isLockedByOther(c.id) ? lockOwner(c.id) : null}
               />
             ))}
@@ -598,7 +608,7 @@ export default function DiagramDashboard() {
             camera={camera}
             selectedRelId={selectedRelId}
             onSelectRelation={(rid) => { setSelectedRelId(rid); setSelectedId(null); }}
-            onUpdateRelation={(relationId, patch) => handleUpdateRelation(patch, relationId)}
+            onUpdateRelation={readOnly ? undefined : (relationId, patch) => handleUpdateRelation(patch, relationId)}
           />
 
           {/* Aviso de deshacer */}
@@ -649,6 +659,7 @@ export default function DiagramDashboard() {
             relation={selectedRel}
             onUpdate={handleUpdateRelation}
             onDelete={handleDeleteRelation}
+            readOnly={readOnly}
           />
         ) : (
           <Inspector
@@ -664,6 +675,7 @@ export default function DiagramDashboard() {
             onRemoveMeth={(cid, mid) => removeMeth(cid, mid)}
             onKindChange={handleKindChange}
             enumNames={enumNames}
+            readOnly={readOnly}
           />
         )}
       </div>

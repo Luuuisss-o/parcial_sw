@@ -94,7 +94,7 @@ function RelationTypePreview({ type }) {
   );
 }
 
-export default function RelationInspector({ relation, onUpdate, onDelete }) {
+export default function RelationInspector({ relation, onUpdate, onDelete, readOnly = false }) {
   const [localLabel, setLocalLabel] = useState(relation?.label ?? "");
   const [localMultOrigenMin, setLocalMultOrigenMin] = useState(relation?.src_mult_min ?? "");
   const [localMultOrigenMax, setLocalMultOrigenMax] = useState(
@@ -263,18 +263,25 @@ export default function RelationInspector({ relation, onUpdate, onDelete }) {
             {tipoActual.label}
           </span>
         )}
-        <button
-          className="btn btn-danger-ghost btn-icon btn-sm"
-          onClick={onDelete}
-          title="Eliminar esta relación"
-          style={{ flexShrink: 0 }}
-        >
-          <Icon name="trash" size={14} />
-        </button>
+        {!readOnly && (
+          <button
+            className="btn btn-danger-ghost btn-icon btn-sm"
+            onClick={onDelete}
+            title="Eliminar esta relación"
+            style={{ flexShrink: 0 }}
+          >
+            <Icon name="trash" size={14} />
+          </button>
+        )}
       </div>
       <div style={{ borderBottom: "1px solid var(--border)" }} />
 
-      <div className="scroll" style={{ flex: 1, padding: "var(--sp-4)", display: "grid", gap: "var(--sp-5)", alignContent: "start" }}>
+      <fieldset
+        disabled={readOnly}
+        className="scroll"
+        style={{ flex: 1, padding: "var(--sp-4)", display: "grid", gap: "var(--sp-5)", alignContent: "start",
+                 border: 0, margin: 0, minWidth: 0, minHeight: 0 }}
+      >
         <RowError message={error} />
 
         {/* Quiénes se conectan */}
@@ -529,7 +536,7 @@ export default function RelationInspector({ relation, onUpdate, onDelete }) {
             </div>
           </div>
         </div>
-      </div>
+      </fieldset>
     </aside>
   );
 }

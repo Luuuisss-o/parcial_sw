@@ -43,7 +43,7 @@ async def create_class(
     me: User = Depends(get_current_user),
 ):
     logger.info(f"➕ [CREATE] clase -> diagram_id={diagram_id}, user={me.id}, body={body}")
-    d = get_my_diagram(db, me, diagram_id)
+    d = get_my_diagram(db, me, diagram_id, edit=True)
 
     _ensure_unique_class_name(db, d.id, body.name)
 
@@ -113,7 +113,7 @@ async def update_class(
     me: User = Depends(get_current_user),
 ):
     logger.info(f"✏️ [UPDATE] clase -> class_id={class_id}, user={me.id}, body={body}")
-    c = get_my_class(db, me, class_id)
+    c = get_my_class(db, me, class_id, edit=True)
 
     try:
         if body.name is not None and body.name != c.nombre:
@@ -145,7 +145,7 @@ async def delete_class(
     me: User = Depends(get_current_user),
 ):
     logger.info(f"🗑️ [DELETE] clase -> class_id={class_id}, user={me.id}")
-    c = get_my_class(db, me, class_id)
+    c = get_my_class(db, me, class_id, edit=True)
     diagram_id = c.diagram_id
     class_id_val = c.id
 

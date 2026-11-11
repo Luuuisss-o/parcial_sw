@@ -56,7 +56,7 @@ async def create_attribute(
     me: User = Depends(get_current_user),
 ):
     logger.info(f"➕ [CREATE] atributo -> class_id={class_id}, user={me.id}, body={body}")
-    c = get_my_class(db, me, class_id)
+    c = get_my_class(db, me, class_id, edit=True)
     _ensure_unique_attribute_name(db, c.id, body.name)
 
     try:
@@ -86,7 +86,7 @@ async def update_attribute(
     me: User = Depends(get_current_user),
 ):
     logger.info(f"✏️ [UPDATE] atributo -> attr_id={attr_id}, user={me.id}, body={body}")
-    a = get_my_attribute(db, me, attr_id)
+    a = get_my_attribute(db, me, attr_id, edit=True)
 
     try:
         if body.name is not None and body.name != a.nombre:
@@ -123,7 +123,7 @@ async def delete_attribute(
     me: User = Depends(get_current_user),
 ):
     logger.info(f"🗑️ [DELETE] atributo -> attr_id={attr_id}, user={me.id}")
-    a = get_my_attribute(db, me, attr_id)
+    a = get_my_attribute(db, me, attr_id, edit=True)
 
     try:
         c = a.clase

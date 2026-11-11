@@ -33,6 +33,8 @@ class _DiagramScreenState extends State<DiagramScreen> {
   List<UmlRelation> _relations = [];
   bool _loading = true;
   String? _error;
+  // Colaborador de solo lectura: ve el diagrama y usa el chat, pero no edita.
+  bool _readOnly = false;
 
   @override
   void initState() {
@@ -66,10 +68,12 @@ class _DiagramScreenState extends State<DiagramScreen> {
   Future<void> _load() async {
     final app = context.read<AppState>();
     try {
+      final diagram = await app.api.getDiagram(widget.diagramId);
       final classes = await app.api.listClasses(widget.diagramId);
       final relations = await app.api.listRelations(widget.diagramId);
       if (!mounted) return;
       setState(() {
+        _readOnly = diagram.readOnly;
         _classes = classes;
         _relations = relations;
         _loading = false;
@@ -102,7 +106,8 @@ class _DiagramScreenState extends State<DiagramScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Nueva clase'),
-        content: TextField(controller: controller, autofocus: true, decoration: const InputDecoration(labelText: 'Nombre')),
+        content:
+            TextField(controller: controller, autofocus: true, decoration: const InputDecoration(labelText: 'Nombre')),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
           FilledButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('Crear')),
@@ -118,7 +123,16 @@ class _DiagramScreenState extends State<DiagramScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
+      appBar: AppBar(
+        title: Text(widget.title),
+        actions: [
+          if (_readOnly)
+            const Padding(
+              padding: EdgeInsets.only(right: 12),
+              child: Chip(avatar: Icon(Icons.visibility_outlined, size: 18), label: Text('Solo lectura')),
+            ),
+        ],
+      ),
       floatingActionButton: Column(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
@@ -132,23 +146,26 @@ class _DiagramScreenState extends State<DiagramScreen> {
             tooltip: 'Chat del equipo (IA local en el celular)',
             child: const Icon(Icons.forum),
           ),
-          const SizedBox(height: 12),
-          FloatingActionButton(
-            heroTag: 'assistant',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => AssistantScreen(diagramId: widget.diagramId, onChanged: _load),
+          // El asistente por voz y "agregar clase" editan el diagrama.
+          if (!_readOnly) ...[
+            const SizedBox(height: 12),
+            FloatingActionButton(
+              heroTag: 'assistant',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => AssistantScreen(diagramId: widget.diagramId, onChanged: _load),
+                ),
               ),
+              tooltip: 'Asistente IA',
+              child: const Icon(Icons.mic),
             ),
-            tooltip: 'Asistente IA',
-            child: const Icon(Icons.mic),
-          ),
-          const SizedBox(height: 12),
-          FloatingActionButton(
-            heroTag: 'add-class',
-            onPressed: _createClass,
-            child: const Icon(Icons.add),
-          ),
+            const SizedBox(height: 12),
+            FloatingActionButton(
+              heroTag: 'add-class',
+              onPressed: _createClass,
+              child: const Icon(Icons.add),
+            ),
+          ],
         ],
       ),
       body: _loading
@@ -162,9 +179,12 @@ class _DiagramScreenState extends State<DiagramScreen> {
                     itemCount: _classes.length,
                     itemBuilder: (context, i) => _ClassCard(
                       umlClass: _classes[i],
-                      relations: _relations.where((r) => r.fromClassId == _classes[i].id || r.toClassId == _classes[i].id).toList(),
+                      relations: _relations
+                          .where((r) => r.fromClassId == _classes[i].id || r.toClassId == _classes[i].id)
+                          .toList(),
                       onChanged: _load,
                       diagramId: widget.diagramId,
+                      readOnly: _readOnly,
                     ),
                   ),
                 ),
@@ -177,12 +197,14 @@ class _ClassCard extends StatelessWidget {
   final List<UmlRelation> relations;
   final String diagramId;
   final VoidCallback onChanged;
+  final bool readOnly;
 
   const _ClassCard({
     required this.umlClass,
     required this.relations,
     required this.diagramId,
     required this.onChanged,
+    this.readOnly = false,
   });
 
   @override
@@ -214,23 +236,24 @@ class _ClassCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () async {
-                    // Varios toques seguidos mandaban el mismo DELETE: el
-                    // primero borra y los demás daban "Clase no encontrada"
-                    // como excepción sin manejar. Ya borrada = objetivo cumplido.
-                    try {
-                      await context.read<AppState>().api.deleteClass(umlClass.id);
-                    } catch (e) {
-                      if (!'$e'.contains('no encontrada') && context.mounted) {
-                        ScaffoldMessenger.of(context)
-                            .showSnackBar(SnackBar(content: Text('No se pudo borrar la clase: $e')));
+                if (!readOnly)
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () async {
+                      // Varios toques seguidos mandaban el mismo DELETE: el
+                      // primero borra y los demás daban "Clase no encontrada"
+                      // como excepción sin manejar. Ya borrada = objetivo cumplido.
+                      try {
+                        await context.read<AppState>().api.deleteClass(umlClass.id);
+                      } catch (e) {
+                        if (!'$e'.contains('no encontrada') && context.mounted) {
+                          ScaffoldMessenger.of(context)
+                              .showSnackBar(SnackBar(content: Text('No se pudo borrar la clase: $e')));
+                        }
                       }
-                    }
-                    onChanged();
-                  },
-                ),
+                      onChanged();
+                    },
+                  ),
               ],
             ),
             if (umlClass.attributes.isNotEmpty) const Divider(),
@@ -239,9 +262,7 @@ class _ClassCard extends StatelessWidget {
             // los atributos son sus literales (solo el nombre).
             for (final a in umlClass.attributes)
               Text(
-                umlClass.kind == 'enumeration'
-                    ? a.name
-                    : '${a.visibility} ${a.umlText}${a.required ? ' *' : ''}',
+                umlClass.kind == 'enumeration' ? a.name : '${a.visibility} ${a.umlText}${a.required ? ' *' : ''}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       decoration: a.isStatic ? TextDecoration.underline : TextDecoration.none,
                     ),

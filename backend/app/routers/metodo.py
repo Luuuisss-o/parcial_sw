@@ -56,7 +56,7 @@ async def create_method(
     me: User = Depends(get_current_user),
 ):
     logger.info(f"➕ [CREATE] método -> class_id={class_id}, user={me.id}, body={body}")
-    c = get_my_class(db, me, class_id)
+    c = get_my_class(db, me, class_id, edit=True)
     _ensure_unique_method_name(db, c.id, body.name)
 
     try:
@@ -86,7 +86,7 @@ async def update_method(
     me: User = Depends(get_current_user),
 ):
     logger.info(f"✏️ [UPDATE] método -> method_id={method_id}, user={me.id}, body={body}")
-    m = get_my_method(db, me, method_id)
+    m = get_my_method(db, me, method_id, edit=True)
 
     try:
         if body.name is not None and body.name != m.nombre:
@@ -119,7 +119,7 @@ async def delete_method(
     me: User = Depends(get_current_user),
 ):
     logger.info(f"🗑️ [DELETE] método -> method_id={method_id}, user={me.id}")
-    m = get_my_method(db, me, method_id)
+    m = get_my_method(db, me, method_id, edit=True)
 
     try:
         c = m.clase

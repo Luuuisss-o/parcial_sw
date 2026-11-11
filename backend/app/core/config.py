@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     # Certificado (PEM en base64) del servidor del modelo: con https:// el
     # backend confia SOLO en el (pinning). Lo imprime setup_model_server.sh.
     LOCAL_MODEL_CERT: str = ""
+
+    # Límite de intentos (ver utils/rate_limit.py)
+    LOGIN_WINDOW_MIN: int = 15          # ventana para contar intentos fallidos
+    LOGIN_MAX_FAILS_PER_EMAIL: int = 8  # por correo + IP
+    LOGIN_MAX_FAILS_PER_IP: int = 30    # por IP, sin importar el correo
+    SIGNUP_MAX_PER_IP_HOUR: int = 10    # cuentas nuevas por IP por hora
     LOCAL_MODEL_LABEL: str = "Gemma 3 1B propio del equipo"
     # Token con el que el servidor del modelo descarga las versiones nuevas
     # (GET /models/assistant[/download]) sin una cuenta de usuario.

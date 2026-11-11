@@ -175,7 +175,7 @@ def list_proposals(
 
 
 def _decide(diagram_id: UUID, proposal_id: UUID, accept: bool, db: Session, me: User) -> dict:
-    diagram = get_my_diagram(db, me, diagram_id)
+    diagram = get_my_diagram(db, me, diagram_id, edit=accept)
     try:
         p = ai_proposals.decide(db, diagram, proposal_id, me, accept)
     except ai_proposals.ProposalError as e:

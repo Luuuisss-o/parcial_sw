@@ -364,6 +364,7 @@ export default function Inspector({
   onRemoveMeth,
   onKindChange,
   enumNames = [],
+  readOnly = false,
 }) {
   const [name, setName] = useState("");
   const [addError, setAddError] = useState("");
@@ -471,14 +472,28 @@ export default function Inspector({
       >
         <Icon name="class" size={15} style={{ color: "var(--accent)" }} />
         <strong style={{ fontSize: 13, flex: 1 }}>Clase</strong>
-        <button className="btn btn-danger-ghost btn-sm" onClick={onDeleteClass} title="Eliminar esta clase del diagrama">
-          <Icon name="trash" size={14} />
-          Eliminar
-        </button>
+        {!readOnly && (
+          <button className="btn btn-danger-ghost btn-sm" onClick={onDeleteClass} title="Eliminar esta clase del diagrama">
+            <Icon name="trash" size={14} />
+            Eliminar
+          </button>
+        )}
         <CollapseToggle />
       </div>
 
-      <div className="scroll" style={{ flex: 1, padding: "var(--sp-4)", display: "grid", gap: "var(--sp-5)", alignContent: "start" }}>
+      {/* Solo lectura: todo el formulario deshabilitado de una vez. */}
+      <fieldset
+        disabled={readOnly}
+        className="scroll"
+        style={{ flex: 1, padding: "var(--sp-4)", display: "grid", gap: "var(--sp-5)", alignContent: "start",
+                 border: 0, margin: 0, minWidth: 0, minHeight: 0 }}
+      >
+        {readOnly && (
+          <div className="text-muted" style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "center" }}>
+            <Icon name="eye" size={13} />
+            Estás viendo este diagrama en modo solo lectura.
+          </div>
+        )}
         {/* ---------- Nombre ---------- */}
         <div className="field">
           <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
@@ -607,7 +622,7 @@ export default function Inspector({
             </div>
           )}
         </div>
-      </div>
+      </fieldset>
 
       {/* ---------- Aclaración de guardado ---------- */}
       <div
