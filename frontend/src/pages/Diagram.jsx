@@ -32,6 +32,7 @@ import HelpGuide from "../components/common/HelpGuide";
 import Icon from "../components/common/Icon";
 import { exportXmi, importXmi } from "../api/xmi";
 import { deleteRelation as apiDeleteRelation } from "../api/relations";
+import { onEvent as onRealtimeEvent } from "../api/realtime";
 
 // ===== layout =====
 import HeaderBar from "../components/layout/HeaderBar";
@@ -47,12 +48,31 @@ export default function DiagramDashboard() {
   const email = useAuth((s) => s.email);
 
   const { theme, toggleTheme } = useTheme();
-  const { diagram, loading, err } = useDiagram(id);
+  const { diagram, loading, err, reload: reloadDiagram } = useDiagram(id);
   // Colaborador de solo lectura: ve todo, usa el chat y exporta, pero no
   // modifica (el backend además lo rechaza con 403).
   const readOnly = diagram?.my_role === "VIEWER";
   const readOnlyRef = useRef(false);
   readOnlyRef.current = readOnly;
+
+  // El dueño me cambió el permiso (o me quitó) con el diagrama abierto: se
+  // recarga mi rol para pasar a solo lectura / edición sin recargar la página.
+  useEffect(() => {
+    if (!diagram?.id) return;
+    return onRealtimeEvent("collaborators.changed", (data) => {
+      if ((data?.email || "").toLowerCase() !== (email || "").toLowerCase()) return;
+      reloadDiagram();
+      setAviso({
+        tipo: data.role ? "ok" : "error",
+        texto: data.role === "VIEWER"
+          ? "El dueño te dio acceso de solo lectura a este diagrama."
+          : data.role
+            ? "El dueño te dio permiso para editar este diagrama."
+            : "El dueño te quitó el acceso a este diagrama.",
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diagram?.id, email]);
 
   const [linking, setLinking] = useState(null);
   const [camera, setCamera] = useState({ x: 0, y: 0, z: 1 });
@@ -196,7 +216,8 @@ export default function DiagramDashboard() {
 
   const lockedClassRef = useRef(null);
   useEffect(() => {
-    if (lockedClassRef.current && lockedClassRef.current !== selectedId) {
+    // Al pasar a solo lectura también se suelta la clase que tenía tomada.
+    if (lockedClassRef.current && (lockedClassRef.current !== selectedId || readOnly)) {
       unlockClass(lockedClassRef.current);
     }
     if (selectedId && !readOnly) lockClass(selectedId);

@@ -143,7 +143,6 @@ async def websocket_endpoint(websocket: WebSocket, diagram_id: str):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     email, name, user_id = auth
-    read_only = _is_read_only(user_id, diagram_id)
 
     conn_id = str(id(websocket))
     await ws_manager.connect(diagram_id, websocket, meta={
@@ -203,7 +202,7 @@ async def websocket_endpoint(websocket: WebSocket, diagram_id: str):
             if action == "lock":
                 # Un lector no puede tomar una clase: se la bloquearía a los
                 # que sí editan.
-                if read_only:
+                if _is_read_only(user_id, diagram_id):
                     continue
                 if lock_manager.acquire(diagram_id, class_id, email, websocket):
                     await ws_manager.broadcast(diagram_id, {

@@ -9,6 +9,7 @@
 from uuid import UUID
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -20,6 +21,7 @@ from app.schemas.diagram import DiagramCreate, DiagramOut, DiagramList
 from app.schemas.collaborator import CollaboratorCreate, CollaboratorOut
 from app.schemas.clase_completa import ClaseCompletaOut, ClaseCompletaOutLight,RelacionOutExpanded
 
+from app.utils import realtime_events
 from ._helpers import get_my_diagram, _accessible_diagram_filter, diagram_role
 
 router = APIRouter(prefix="/diagrams", tags=["diagrams"])
@@ -160,7 +162,8 @@ def add_collaborator(
     if not d:
         raise HTTPException(404, "Diagrama no encontrado")
 
-    target = db.query(User).filter(User.email == body.email).one_or_none()
+    # Sin distinguir mayúsculas ni espacios: "Diego@Mail.com " es la misma cuenta.
+    target = db.query(User).filter(func.lower(User.email) == body.email.strip().lower()).one_or_none()
     if not target:
         raise HTTPException(404, "No existe ningún usuario con ese email")
     if target.id == d.owner_id:
@@ -174,10 +177,12 @@ def add_collaborator(
     if existing:
         existing.role = body.role
         db.commit(); db.refresh(existing)
+        realtime_events.fire(realtime_events.notify_collaborators_changed(d.id, target.email, existing.role.value))
         return CollaboratorOut(id=existing.id, user_id=target.id, email=target.email, name=target.name, role=existing.role)
 
     collab = DiagramCollaborator(diagram_id=d.id, user_id=target.id, role=body.role)
     db.add(collab); db.commit(); db.refresh(collab)
+    realtime_events.fire(realtime_events.notify_collaborators_changed(d.id, target.email, collab.role.value))
     return CollaboratorOut(id=collab.id, user_id=target.id, email=target.email, name=target.name, role=collab.role)
 
 
@@ -200,5 +205,7 @@ def remove_collaborator(
     if not collab:
         raise HTTPException(404, "Ese usuario no es colaborador de este diagrama")
 
+    removed_email = collab.user.email if getattr(collab, 'user', None) else ''
     db.delete(collab); db.commit()
+    realtime_events.fire(realtime_events.notify_collaborators_changed(d.id, removed_email, None))
     return

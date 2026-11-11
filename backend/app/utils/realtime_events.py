@@ -127,6 +127,16 @@ async def notify_class_updated(diagram_id: UUID, clase: Clase):
     await ws_manager.broadcast(str(diagram_id), payload)
 
 
+async def notify_collaborators_changed(diagram_id: UUID, email: str, role: str | None):
+    """Cambió el acceso de un colaborador (invitado, cambio de rol o quitado:
+    role=None). Su editor abierto recarga el diagrama para pasar a solo
+    lectura, volver a edición o salir, sin tener que recargar la página."""
+    await ws_manager.broadcast(str(diagram_id), {
+        "event": "collaborators.changed",
+        "data": {"email": email, "role": role},
+    })
+
+
 async def notify_class_deleted(diagram_id: UUID, class_id: UUID):
     payload = {
         "event": "class.deleted",

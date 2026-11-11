@@ -162,3 +162,24 @@ def test_tope_de_cuentas_nuevas_por_ip(client):
     r = client.post("/auth/sign-up", json={"name": "Serie", "email": f"once.{uuid.uuid4().hex[:4]}@permisos.test",
                                             "password": PASS}, headers=h)
     assert r.status_code == 429 and "demasiadas cuentas" in r.json()["detail"]
+
+
+def test_invitar_eligiendo_el_rol_y_cambiarlo(client):
+    """Invitar con el correo en otra capitalización funciona, con el rol
+    elegido; volver a invitar al mismo correo le cambia el rol."""
+    _, dueno = _cuenta(client, "Duena2")
+    email, invitada = _cuenta(client, "Invitada")
+    did = client.post("/diagrams", json={"title": "Roles"}, headers=dueno).json()["id"]
+
+    r = client.post(f"/diagrams/{did}/collaborators", json={"email": f"  {email.upper()} ", "role": "VIEWER"},
+                    headers=dueno)
+    assert r.status_code == 201, r.text
+    assert r.json()["role"] == "VIEWER"
+    assert client.get(f"/diagrams/{did}", headers=invitada).json()["my_role"] == "VIEWER"
+    assert client.post(f"/diagrams/{did}/classes", json={"name": "X"}, headers=invitada).status_code == 403
+
+    r = client.post(f"/diagrams/{did}/collaborators", json={"email": email, "role": "EDITOR"}, headers=dueno)
+    assert r.json()["role"] == "EDITOR"
+    roles = [c["role"] for c in client.get(f"/diagrams/{did}/collaborators", headers=dueno).json()]
+    assert roles == ["EDITOR"]  # se actualizó, no se duplicó
+    assert client.post(f"/diagrams/{did}/classes", json={"name": "X"}, headers=invitada).status_code == 201

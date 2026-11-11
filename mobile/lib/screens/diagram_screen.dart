@@ -55,6 +55,9 @@ class _DiagramScreenState extends State<DiagramScreen> {
     _offRelationChanged = _realtime.on('relation.created', (_) => _load());
     _offRelationDeleted = _realtime.on('relation.deleted', (_) => _load());
     _offReconnected = _realtime.on('reconnected', (_) => _load());
+    // El dueño cambió mi permiso (solo lectura / editor) o me quitó: se
+    // recarga el diagrama, y con él mi rol.
+    _offCollaborators = _realtime.on('collaborators.changed', (_) => _load());
   }
 
   final _realtime = RealtimeService();
@@ -64,6 +67,7 @@ class _DiagramScreenState extends State<DiagramScreen> {
   void Function()? _offRelationChanged;
   void Function()? _offRelationDeleted;
   void Function()? _offReconnected;
+  void Function()? _offCollaborators;
 
   Future<void> _load() async {
     final app = context.read<AppState>();
@@ -96,6 +100,7 @@ class _DiagramScreenState extends State<DiagramScreen> {
     _offRelationChanged?.call();
     _offRelationDeleted?.call();
     _offReconnected?.call();
+    _offCollaborators?.call();
     _realtime.disconnect();
     super.dispose();
   }
