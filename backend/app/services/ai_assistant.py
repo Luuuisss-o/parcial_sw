@@ -461,7 +461,8 @@ def _run(db, diagram, user_text, requester, history, team_context, mode, solutio
     session = llm_providers.open_session(cfg)  # valida la config antes de hacer nada
     # Eliminaciones con impacto (clase con contenido, varias a la vez) solo si
     # el usuario confirmo explicitamente en este mensaje (ver ai_tools).
-    executor = DiagramToolExecutor(db, diagram, destructive_confirmed=bool(CONFIRM_RE.search(user_text)))
+    executor = DiagramToolExecutor(db, diagram, destructive_confirmed=bool(CONFIRM_RE.search(user_text)),
+                                   actor_email=requester.email if requester else None)
 
     snapshot = executor.snapshot()
     revision = ai_proposals.diagram_revision(snapshot)

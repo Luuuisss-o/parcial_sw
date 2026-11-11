@@ -12,8 +12,10 @@ IA quien decide, comando a comando, que tools llamar.
 """
 from __future__ import annotations
 
+import functools
 import logging
 import re
+import threading
 from typing import Any, Optional
 from uuid import UUID
 
@@ -32,6 +34,45 @@ class ToolError(Exception):
 
 
 _fire = realtime_events.fire
+
+
+# ---------------------------------------------------------------------------
+# Trabajo colaborativo simultaneo (la IA atiende a varios desarrolladores a la
+# vez: cada consulta corre en su propio hilo).
+#
+# 1) Las ediciones sobre un MISMO diagrama se serializan con un lock por
+#    diagrama: dos consultas que llegan juntas ("creá Cliente" de Ana y
+#    "creá Cliente" de Beto) no pueden pasar las dos el chequeo de nombre
+#    repetido antes de que la otra confirme. Diagramas distintos no se
+#    esperan entre si. RLock: una propuesta aplica varias operaciones seguidas
+#    desde el mismo hilo.
+# 2) La IA respeta la exclusion mutua de los humanos (services/locks.py): no
+#    toca una clase que otro integrante tiene seleccionada para editar. Si la
+#    tiene quien pidio el cambio, si (la IA trabaja en su nombre).
+# ---------------------------------------------------------------------------
+_DIAGRAM_EDIT_LOCKS: dict[str, threading.RLock] = {}
+_DIAGRAM_EDIT_LOCKS_GUARD = threading.Lock()
+
+
+def diagram_edit_lock(diagram_id) -> threading.RLock:
+    with _DIAGRAM_EDIT_LOCKS_GUARD:
+        return _DIAGRAM_EDIT_LOCKS.setdefault(str(diagram_id), threading.RLock())
+
+
+def _serialized(method):
+    """Ejecuta una edicion con el lock del diagrama tomado, viendo lo que
+    otras consultas ya confirmaron (nada de datos cacheados en la sesion de
+    este hilo)."""
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with diagram_edit_lock(self.diagram.id):
+            # flush antes de expirar: expire_all descartaria cambios
+            # pendientes de quien llama (p. ej. los datos de la decision al
+            # aplicar una propuesta).
+            self.db.flush()
+            self.db.expire_all()
+            return method(self, *args, **kwargs)
+    return wrapper
 
 
 # El usuario confirmo explicitamente una eliminacion: "confirmo ..." o, AL
@@ -53,11 +94,25 @@ class DiagramToolExecutor:
     y el modelo tiene que pedirle confirmacion al usuario. Es una regla del
     servidor, no del criterio del modelo."""
 
-    def __init__(self, db: Session, diagram: Diagram, destructive_confirmed: bool = True):
+    def __init__(self, db: Session, diagram: Diagram, destructive_confirmed: bool = True,
+                 actor_email: Optional[str] = None):
         self.db = db
         self.diagram = diagram
         self.destructive_confirmed = destructive_confirmed
         self._destructive_done = 0
+        # Quien pidio el cambio: puede editar las clases que el mismo tiene
+        # tomadas en el editor (las de los demas, no).
+        self.actor_email = (actor_email or "").lower() or None
+
+    def _guard_human_lock(self, clase: Clase) -> None:
+        from app.services.locks import lock_manager  # evita import circular
+        info = lock_manager.info(str(self.diagram.id), str(clase.id))
+        if info is not None and (info.email or "").lower() != self.actor_email:
+            raise ToolError(
+                f"La clase '{clase.nombre}' la está editando {info.email} en este momento: "
+                f"no la modifiqué para no pisar su trabajo. Avisale al usuario que lo intente "
+                f"de nuevo cuando {info.email} termine (o que se lo pida a esa persona)."
+            )
 
     def _guard_destructive(self, what: str, impact: str = "") -> None:
         if not self.destructive_confirmed and (impact or self._destructive_done >= 1):
@@ -156,6 +211,7 @@ class DiagramToolExecutor:
     # Los parámetros de notación UML 2.5 (kind, visibility, ...) son
     # opcionales y NO forman parte del esquema de herramientas de la IA: los
     # usa la importación XMI. Así el contrato con el modelo entrenado no cambia.
+    @_serialized
     def create_class(self, name: str, x_grid: Optional[int] = None, y_grid: Optional[int] = None,
                      kind: str = "class") -> dict:
         existing = (
@@ -216,24 +272,38 @@ class DiagramToolExecutor:
                 return x, y
         return 0, (len(rects) // self._SLOT_COLS + 1) * step_y
 
+    @_serialized
     def rename_class(self, class_name: str, new_name: str) -> dict:
         c = self._find_class(class_name)
+        self._guard_human_lock(c)
+        clash = (
+            self.db.query(Clase)
+            .filter(Clase.diagram_id == self.diagram.id, Clase.id != c.id)
+            .filter(Clase.nombre.ilike(new_name.strip()))
+            .first()
+        )
+        if clash:
+            raise ToolError(f"Ya existe una clase llamada '{clash.nombre}' en este diagrama.")
         c.nombre = new_name.strip()
         self.db.commit()
         self.db.refresh(c)
         _fire(realtime_events.notify_class_updated(self.diagram.id, c))
         return {"ok": True, "clase": c.nombre}
 
+    @_serialized
     def move_class(self, class_name: str, x_grid: int, y_grid: int) -> dict:
         c = self._find_class(class_name)
+        self._guard_human_lock(c)
         c.x_grid, c.y_grid = x_grid, y_grid
         self.db.commit()
         self.db.refresh(c)
         _fire(realtime_events.notify_class_updated(self.diagram.id, c))
         return {"ok": True, "clase": c.nombre, "x_grid": c.x_grid, "y_grid": c.y_grid}
 
+    @_serialized
     def delete_class(self, class_name: str) -> dict:
         c = self._find_class(class_name)
+        self._guard_human_lock(c)
         n_rel = (
             self.db.query(Relacion)
             .filter((Relacion.origen_id == c.id) | (Relacion.destino_id == c.id))
@@ -252,10 +322,12 @@ class DiagramToolExecutor:
     # ---------------------------------------------------------------
     # Atributos
     # ---------------------------------------------------------------
+    @_serialized
     def add_attribute(self, class_name: str, name: str, type: str, required: bool = False,
                       visibility: str = "-", is_static: bool = False, is_derived: bool = False,
                       multiplicity: Optional[str] = None, default_value: Optional[str] = None) -> dict:
         c = self._find_class(class_name)
+        self._guard_human_lock(c)
         existing = (
             self.db.query(Atributo)
             .filter(Atributo.clase_id == c.id)
@@ -277,8 +349,10 @@ class DiagramToolExecutor:
         _fire(realtime_events.notify_class_updated(self.diagram.id, c))
         return {"ok": True, "clase": c.nombre, "atributo": a.nombre, "tipo": a.tipo}
 
+    @_serialized
     def delete_attribute(self, class_name: str, attribute_name: str) -> dict:
         c = self._find_class(class_name)
+        self._guard_human_lock(c)
         a = self._find_attribute(c, attribute_name)
         self._guard_destructive(f"el atributo '{a.nombre}' de '{c.nombre}'")
         attr_id = a.id
@@ -291,10 +365,12 @@ class DiagramToolExecutor:
     # ---------------------------------------------------------------
     # Metodos
     # ---------------------------------------------------------------
+    @_serialized
     def add_method(self, class_name: str, name: str, return_type: str = "void",
                    visibility: str = "+", is_static: bool = False, is_abstract: bool = False,
                    params: str = "") -> dict:
         c = self._find_class(class_name)
+        self._guard_human_lock(c)
         existing = (
             self.db.query(Metodo)
             .filter(Metodo.clase_id == c.id)
@@ -315,8 +391,10 @@ class DiagramToolExecutor:
         _fire(realtime_events.notify_class_updated(self.diagram.id, c))
         return {"ok": True, "clase": c.nombre, "metodo": m.nombre}
 
+    @_serialized
     def delete_method(self, class_name: str, method_name: str) -> dict:
         c = self._find_class(class_name)
+        self._guard_human_lock(c)
         m = self._find_method(c, method_name)
         self._guard_destructive(f"el metodo '{m.nombre}' de '{c.nombre}'")
         method_id = m.id
@@ -329,6 +407,7 @@ class DiagramToolExecutor:
     # ---------------------------------------------------------------
     # Relaciones
     # ---------------------------------------------------------------
+    @_serialized
     def create_relation(
         self,
         from_class: str,
@@ -382,6 +461,7 @@ class DiagramToolExecutor:
         _fire(realtime_events.notify_relation_created(self.diagram.id, rel_out))
         return {"ok": True, "origen": src.nombre, "destino": dst.nombre, "tipo": rel_type.value}
 
+    @_serialized
     def delete_relation(self, from_class: str, to_class: str, type: Optional[str] = None) -> dict:
         src = self._find_class(from_class)
         dst = self._find_class(to_class)

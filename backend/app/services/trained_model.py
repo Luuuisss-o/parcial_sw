@@ -203,7 +203,8 @@ def run(db, diagram, user_text, requester, history, team_context, mode, solution
         proposals_enabled, label):
     from app.services.ai_assistant import MODE_MENTOR, NO_PROPOSAL_NOTE, AiCommandResult
 
-    executor = DiagramToolExecutor(db, diagram, destructive_confirmed=bool(CONFIRM_RE.search(user_text)))
+    executor = DiagramToolExecutor(db, diagram, destructive_confirmed=bool(CONFIRM_RE.search(user_text)),
+                                   actor_email=getattr(requester, "email", None))
     snapshot = executor.snapshot()
     revision = ai_proposals.diagram_revision(snapshot)
     prompt = build_prompt(build_context(snapshot, user_text, requester, history, team_context, solutions_enabled))

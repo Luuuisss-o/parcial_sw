@@ -28,7 +28,15 @@ def fire(coro):
             logger.warning("No se pudo emitir evento realtime: loop principal no capturado aun")
             coro.close()
             return
-        asyncio.run_coroutine_threadsafe(coro, loop)
+        try:
+            asyncio.run_coroutine_threadsafe(coro, loop)
+        except RuntimeError as e:
+            # Loop cerrado (la app se esta apagando o reiniciando): la
+            # notificacion es de mejor esfuerzo y no puede tirar abajo la
+            # tarea que la dispara (una consulta a la IA quedaria "en curso"
+            # para siempre).
+            logger.warning(f"No se pudo emitir evento realtime: {e}")
+            coro.close()
 
 
 # =========================

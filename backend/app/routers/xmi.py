@@ -75,7 +75,7 @@ async def import_xmi(
             + " ".join(parsed.warnings),
         )
 
-    executor = DiagramToolExecutor(db, diagram)
+    executor = DiagramToolExecutor(db, diagram, actor_email=me.email)
     summary = XmiImportSummary(warnings=list(parsed.warnings))
 
     # --- Clases + atributos ---

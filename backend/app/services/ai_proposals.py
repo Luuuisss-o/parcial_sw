@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 from app.models.chat import AiProposal, ProposalStatus
 from app.models.uml import Diagram
 from app.models.user import User
-from app.services.ai_tools import DiagramToolExecutor, ToolError, _parse_multiplicity
+from app.services.ai_tools import DiagramToolExecutor, ToolError, _parse_multiplicity, diagram_edit_lock
 
 # Operaciones que el asesor puede proponer (las mismas herramientas de la IA
 # de edición, sin move_class: la ubicación no es una decisión de diseño).
@@ -340,27 +340,34 @@ def decide(db: Session, diagram: Diagram, proposal_id: UUID, user: User, accept:
         db.commit()
         return p
 
-    executor = DiagramToolExecutor(db, diagram, destructive_confirmed=True)  # aceptar = confirmar
-    snapshot = executor.snapshot()
-    _, errors, touched = validate_operations(snapshot, p.operations)
-    if errors or touched_hash(snapshot, touched) != p.base_hash:
-        p.status = ProposalStatus.STALE.value
-        p.result = [{"ok": False, "message": e} for e in errors] or [
-            {"ok": False, "message": "Las clases involucradas cambiaron desde que se propuso: pedile al asesor una revisión nueva."}
-        ]
+    # Con el lock del diagrama tomado de punta a punta: otra consulta de la IA
+    # no puede editar entre la verificación de "desactualizada" y la
+    # aplicación (las ediciones de la IA se serializan por diagrama).
+    with diagram_edit_lock(diagram.id):
+        executor = DiagramToolExecutor(db, diagram, destructive_confirmed=True,  # aceptar = confirmar
+                                       actor_email=user.email)
+        db.flush()
+        db.expire_all()
+        snapshot = executor.snapshot()
+        _, errors, touched = validate_operations(snapshot, p.operations)
+        if errors or touched_hash(snapshot, touched) != p.base_hash:
+            p.status = ProposalStatus.STALE.value
+            p.result = [{"ok": False, "message": e} for e in errors] or [
+                {"ok": False, "message": "Las clases involucradas cambiaron desde que se propuso: pedile al asesor una revisión nueva."}
+            ]
+            db.commit()
+            return p
+
+        results = []
+        for op in p.operations:
+            try:
+                getattr(executor, op["tool"])(**op["args"])
+                results.append({"ok": True, "message": describe(op)})
+            except ToolError as e:
+                db.rollback()
+                results.append({"ok": False, "message": f"{describe(op)}: {e}"})
+                break  # no seguir sobre un estado que ya no es el esperado
+        p.result = results
+        p.status = ProposalStatus.APPLIED.value if all(r["ok"] for r in results) else ProposalStatus.FAILED.value
         db.commit()
         return p
-
-    results = []
-    for op in p.operations:
-        try:
-            getattr(executor, op["tool"])(**op["args"])
-            results.append({"ok": True, "message": describe(op)})
-        except ToolError as e:
-            db.rollback()
-            results.append({"ok": False, "message": f"{describe(op)}: {e}"})
-            break  # no seguir sobre un estado que ya no es el esperado
-    p.result = results
-    p.status = ProposalStatus.APPLIED.value if all(r["ok"] for r in results) else ProposalStatus.FAILED.value
-    db.commit()
-    return p
