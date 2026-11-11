@@ -12,12 +12,46 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'brand.dart';
 import 'diagram_list_screen.dart';
+import 'photo_import_screen.dart';
 import 'uap_connect_screen.dart';
 
-class ModeSelectorScreen extends StatelessWidget {
+class ModeSelectorScreen extends StatefulWidget {
   const ModeSelectorScreen({super.key});
+
+  @override
+  State<ModeSelectorScreen> createState() => _ModeSelectorScreenState();
+}
+
+class _ModeSelectorScreenState extends State<ModeSelectorScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _recoverLostPhoto());
+  }
+
+  /// Importar desde foto: mientras la cámara o la galería están abiertas,
+  /// Android puede cerrar la app por falta de memoria (pasó en el celular de
+  /// prueba: lmkd "low watermark is breached"). Al volver, la app arranca de
+  /// cero en esta pantalla y la foto se perdía. image_picker la guarda: si
+  /// hay una pendiente, se retoma el import (Mis diagramas -> revisión).
+  Future<void> _recoverLostPhoto() async {
+    LostDataResponse lost;
+    try {
+      lost = await ImagePicker().retrieveLostData();
+    } catch (_) {
+      return; // plataforma sin soporte (solo aplica en Android)
+    }
+    final file = lost.file;
+    if (lost.isEmpty || file == null || !mounted) return;
+    final bytes = await file.readAsBytes();
+    if (!mounted) return;
+    final nav = Navigator.of(context);
+    nav.push(MaterialPageRoute(builder: (_) => const DiagramListScreen()));
+    nav.push(MaterialPageRoute(builder: (_) => PhotoImportScreen(bytes: bytes, filename: file.name)));
+  }
 
   @override
   Widget build(BuildContext context) {
