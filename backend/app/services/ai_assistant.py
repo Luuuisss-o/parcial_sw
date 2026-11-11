@@ -100,12 +100,37 @@ _DOUBT_RE = re.compile(
 )
 
 
+def is_edit_request(text: str) -> bool:
+    """¿El texto pide un cambio en el diagrama?
+
+    Un verbo de edicion en INFINITIVO dentro de una pregunta teorica no es un
+    pedido: "¿En qué contexto se recomienda crear una base de datos no
+    relacional?" o "¿cuándo conviene agregar un atributo derivado?" preguntan
+    por un concepto. Antes cualquier "crear" mandaba la consulta al modo de
+    edicion, el modelo respondia la teoria sin usar herramientas, y la
+    salvaguarda contra cambios inventados reemplazaba esa explicacion por
+    "No apliqué ningún cambio en el diagrama...". Las ordenes ("creá",
+    "agregale", "¿podés crear...?", que no empieza como pregunta teorica)
+    siguen siendo pedidos de edicion."""
+    matches = [m.group(0).lower() for m in _EDIT_RE.finditer(text)]
+    if not matches:
+        return False
+    if _THEORY_RE.search(text) and "?" in text:
+        return any(not m.endswith("r") and m not in _ENGLISH_EDIT_VERBS for m in matches)
+    return True
+
+
+# Verbos de edicion en ingles: en una pregunta ("how to create...") son la
+# forma base, igual que un infinitivo.
+_ENGLISH_EDIT_VERBS = {"create", "add", "delete", "remove", "rename"}
+
+
 def classify_intent(text: str) -> str:
     """MODE_MENTOR si la consulta es claramente teorica, MODE_AUTO si no.
 
     Teorica = empieza como pregunta/pedido de explicacion, o es una pregunta
-    (lleva "?"), y en ningun caso contiene un verbo de edicion."""
-    if _EDIT_RE.search(text):
+    (lleva "?"), y no pide un cambio (ver is_edit_request)."""
+    if is_edit_request(text):
         return MODE_AUTO
     if _THEORY_RE.search(text) or _DOUBT_RE.search(text) or "?" in text:
         return MODE_MENTOR
@@ -501,7 +526,7 @@ def _run(db, diagram, user_text, requester, history, team_context, mode, solutio
     # ejecuto las herramientas" sin ejecutar nada). Si tampoco, NO se publica
     # su texto -- responde al aviso interno, que el usuario nunca vio, y
     # suele prometer cambios -- sino un mensaje honesto.
-    if not turn.calls and _EDIT_RE.search(user_text):
+    if not turn.calls and is_edit_request(user_text):
         logger.info("[AI COMMAND] pedido de edicion sin tool calls: se insiste una vez")
         try:
             turn = session.insist_on_tools(INSIST_ON_TOOLS)

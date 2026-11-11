@@ -345,6 +345,15 @@ def test_endpoint_ai_command_tambien_es_publico(client, team, fake_ai):
     # Ejemplo literal del docente (audio de la Fase 2):
     ("No me acuerdo qué es un atributo derivado", MODE_MENTOR),
     ("tengo una duda con la multiplicidad", MODE_MENTOR),
+    # Un verbo de edición en infinitivo dentro de una pregunta teórica no es
+    # un pedido (antes caía en modo edición y la respuesta se reemplazaba por
+    # "No apliqué ningún cambio en el diagrama...").
+    ("en que contexto se recomienda crear una base de datos no relacional?", MODE_MENTOR),
+    ("¿cuándo conviene agregar un atributo derivado?", MODE_MENTOR),
+    ("¿Cómo puedo relacionar dos clases de muchos a muchos?", MODE_MENTOR),
+    ("how to create an association class?", MODE_MENTOR),
+    ("crear la clase Factura", MODE_AUTO),
+    ("¿qué tal si creás la clase Pago?", MODE_AUTO),
 ])
 def test_classify_intent(text, mode):
     assert classify_intent(text) == mode
