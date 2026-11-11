@@ -118,10 +118,46 @@ export default function DiagramDashboard() {
     handleDragEnd, handleResizeEnd,
     handleDelete,
     handleKindChange,
+    arrangeOverlaps,
     addAttr, patchAttr, removeAttr,
     addMeth, patchMeth, removeMeth,
     createAssociationClass,
   } = useClassesAndDetails(diagram);
+
+  // Al entrar a un diagrama con clases superpuestas (típico de uno importado
+  // desde una foto o un XMI, o armado por la IA), se separan solas. Una vez
+  // por diagrama, cuando ya están todos los detalles cargados y las tarjetas
+  // tuvieron tiempo de crecer a su alto real (useAutoGrow).
+  const arrangedFor = useRef(null);
+  // Siempre la versión más reciente: la del render en que se agendó el
+  // temporizador vería los altos de antes de que las tarjetas crecieran.
+  const arrangeRef = useRef(arrangeOverlaps);
+  arrangeRef.current = arrangeOverlaps;
+  const allDetailsLoaded = classes.length > 0 && classes.every((c) => detailsByClass[c.id]);
+  useEffect(() => {
+    if (!diagram?.id || !allDetailsLoaded || arrangedFor.current === diagram.id) return;
+    const t = setTimeout(async () => {
+      arrangedFor.current = diagram.id;
+      const n = await arrangeRef.current({ onlyIfOverlapping: true });
+      if (n > 0) {
+        setAviso({
+          tipo: "ok",
+          texto: `Acomodé ${n} clase${n === 1 ? "" : "s"} que estaba${n === 1 ? "" : "n"} superpuesta${n === 1 ? "" : "s"} (Ctrl+Z para volver)`,
+        });
+      }
+    }, 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diagram?.id, allDetailsLoaded]);
+
+  async function handleArrange() {
+    const n = await arrangeOverlaps();
+    setAviso(
+      n > 0
+        ? { tipo: "ok", texto: `Acomodé ${n} clase${n === 1 ? "" : "s"} (Ctrl+Z para volver)` }
+        : { tipo: "vacio", texto: "No hay clases superpuestas" }
+    );
+  }
 
   // Enumeraciones del diagrama: el Inspector las ofrece como tipo de atributo.
   const enumNames = classes
@@ -417,6 +453,7 @@ export default function DiagramDashboard() {
         onUndo={deshacer}
         canUndo={undoCount > 0}
         onOpenCollaborators={() => setShowCollaborators(true)}
+        onArrange={handleArrange}
       />
 
       <div style={{ display: "flex", minHeight: 0 }}>

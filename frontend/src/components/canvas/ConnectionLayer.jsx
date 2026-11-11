@@ -8,8 +8,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { getAnchorForClassSide, getClassRectById, inferClosestSide } from "./utils/geometry";
 
-const DEFAULT_COLOR = "#7cf7ff";
-const SELECTED_COLOR = "#4f7cff"; // var(--accent)
+// Negro en el tema claro y claro en el oscuro (ver --relation-line en
+// theme.css). La relación seleccionada se resalta en ámbar.
+const DEFAULT_COLOR = "var(--relation-line)";
+const SELECTED_COLOR = "#e0902a";
 
 export default function ConnectionLayer({
   classes,
@@ -444,7 +446,7 @@ export default function ConnectionLayer({
         const labelStyle = {
           userSelect: "none",
           fontWeight: isSelected ? 600 : 400,
-          fill: isSelected ? SELECTED_COLOR : "var(--text-muted)",
+          fill: isSelected ? SELECTED_COLOR : "var(--text)",
         };
 
         // UML: herencia y dependencia no llevan multiplicidad (un

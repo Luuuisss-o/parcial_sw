@@ -19,6 +19,7 @@ import {
 import useDebouncedCallback from "./useDebouncedCallback";
 import { connect, disconnect, onEvent as subscribe } from "../api/realtime";
 import useUndo from "../store/undo";
+import { hasOverlaps, resolveOverlaps } from "../components/canvas/utils/layout";
 
 /** Devuelve "campo", "campo2", "campo3"… evitando los nombres ya usados. */
 function nextFreeName(base, taken) {
@@ -330,6 +331,34 @@ export default function useClassesAndDetails(diagram) {
     }
   }
 
+  // ====== SEPARAR CLASES SUPERPUESTAS ======
+  // Un diagrama importado (foto, XMI) o armado por la IA ubica las clases en
+  // una grilla fija, pero cada tarjeta crece según su contenido y termina
+  // tapando a la de abajo. Mueve solo las que hace falta (ver
+  // utils/layout.js), guarda las posiciones y deja un único Ctrl+Z que
+  // restaura todas. Devuelve cuántas clases movió.
+  async function arrangeOverlaps({ onlyIfOverlapping = false } = {}) {
+    const rects = classes.map((c) => ({
+      id: c.id, x: c.x_grid ?? 0, y: c.y_grid ?? 0, w: c.w_grid ?? 12, h: c.h_grid ?? 6,
+    }));
+    if (onlyIfOverlapping && !hasOverlaps(rects)) return 0;
+    const moves = resolveOverlaps(rects);
+    if (moves.size === 0) return 0;
+
+    const antes = new Map(rects.map((r) => [r.id, { x_grid: r.x, y_grid: r.y }]));
+    setClasses((prev) =>
+      prev.map((c) => (moves.has(c.id) ? { ...c, x_grid: moves.get(c.id).x, y_grid: moves.get(c.id).y } : c))
+    );
+    await Promise.all(
+      [...moves].map(([id, p]) => updateClassPosition(id, { x_grid: p.x, y_grid: p.y }).catch(() => null))
+    );
+    pushUndo(`acomodar ${moves.size} clase${moves.size === 1 ? "" : "s"} superpuesta${moves.size === 1 ? "" : "s"}`, async () => {
+      await Promise.all([...moves.keys()].map((id) => updateClassPosition(id, antes.get(id))));
+      setClasses((prev) => prev.map((c) => (moves.has(c.id) ? { ...c, ...antes.get(c.id) } : c)));
+    });
+    return moves.size;
+  }
+
   // ====== DRAG/RESIZE ======
   async function handleDragEnd(classId, { x_grid, y_grid }) {
     const antes = classes.find((c) => c.id === classId);
@@ -485,6 +514,7 @@ export default function useClassesAndDetails(diagram) {
     debouncedSave,
     handleRename,
     handleKindChange,
+    arrangeOverlaps,
     handleDragEnd,
     handleResizeEnd,
     handleDelete,

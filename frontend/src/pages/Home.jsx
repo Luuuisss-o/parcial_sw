@@ -6,6 +6,10 @@ import useTheme from "../hooks/useTheme";
 import ApiStatusBadge from "../components/common/ApiStatusBadge";
 import Icon from "../components/common/Icon";
 import ImportFromPhotoModal from "../components/panels/ImportFromPhotoModal";
+import "./Home.css";
+
+// Color de la franja de cada tarjeta (ámbar, menta, coral), como en la app móvil.
+const STRIPS = ["#f4a940", "#3fc7a8", "#ef7a5a"];
 
 import {
   listDiagrams as apiListDiagrams,
@@ -79,28 +83,13 @@ export default function HomePage() {
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit]);
 
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateRows: "var(--header-h) 1fr",
-        height: "100vh",
-        background: "var(--bg)",
-        color: "var(--text)",
-      }}
-    >
-      {/* ---------- Barra superior ---------- */}
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--sp-3)",
-          padding: "0 var(--sp-5)",
-          borderBottom: "1px solid var(--border)",
-          background: "var(--surface-1)",
-        }}
-      >
-        <Icon name="class" size={18} style={{ color: "var(--accent)" }} />
-        <strong style={{ fontSize: 14 }}>UML Collab Tool</strong>
+    <div className="home">
+      {/* ---------- Barra superior (marca) ---------- */}
+      <header className="brand-bar home-bar">
+        <span className="brand-logo" aria-hidden="true">
+          <Icon name="class" size={16} />
+        </span>
+        <strong>UML Collab Tool</strong>
         <ApiStatusBadge />
 
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
@@ -111,8 +100,8 @@ export default function HomePage() {
           >
             <Icon name={theme === "dark" ? "sun" : "moon"} />
           </button>
-          <div style={{ width: 1, height: 22, background: "var(--border)" }} />
-          <span className="text-muted" style={{ fontSize: 12 }}>{email}</span>
+          <div className="brand-sep" />
+          <span className="text-muted home-email" style={{ fontSize: 12 }}>{email}</span>
           <button
             className="btn btn-ghost btn-icon"
             onClick={() => { logout(); nav("/login", { replace: true }); }}
@@ -123,21 +112,39 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* ---------- Contenido ---------- */}
-      <main className="scroll" style={{ padding: "var(--sp-6) var(--sp-5)" }}>
-        <div style={{ maxWidth: 780, margin: "0 auto", display: "grid", gap: "var(--sp-5)" }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 650 }}>Mis diagramas</h1>
-            <p className="text-muted" style={{ margin: "var(--sp-2) 0 0", fontSize: 13 }}>
-              Cada diagrama es un modelo de clases UML del que después podés generar
-              un backend Spring Boot completo.
+      <main className="scroll">
+        {/* ---------- Franja de bienvenida ---------- */}
+        <section className="brand-bar home-hero">
+          <div className="home-hero-inner">
+            <h1>
+              Mis <em>diagramas</em>
+            </h1>
+            <p className="text-muted">
+              Cada diagrama es un modelo de clases UML del que después podés generar un backend
+              Spring Boot completo. Trabajalo en equipo, en tiempo real, con el asesor de IA.
             </p>
+            <div className="home-chips">
+              <span>
+                <Icon name="file" size={13} />
+                {total} diagrama{total === 1 ? "" : "s"}
+              </span>
+              <span>
+                <Icon name="users" size={13} /> Colaboración en vivo
+              </span>
+              <span>
+                <Icon name="camera" size={13} /> Importá desde una foto
+              </span>
+            </div>
           </div>
+        </section>
 
+        <div className="home-content">
           {/* Crear */}
-          <form onSubmit={createDiagram} className="card" style={{ display: "grid", gap: "var(--sp-3)" }}>
-            <label className="label" htmlFor="nuevo-diagrama">Crear un diagrama nuevo</label>
-            <div style={{ display: "flex", gap: "var(--sp-2)" }}>
+          <form onSubmit={createDiagram} className="home-create">
+            <label className="label" htmlFor="nuevo-diagrama" style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
+              Crear un diagrama nuevo
+            </label>
+            <div className="home-create-row">
               <input
                 id="nuevo-diagrama"
                 className="input"
@@ -149,7 +156,12 @@ export default function HomePage() {
                 <Icon name={creating ? "loader" : "plus"} className={creating ? "spinning" : ""} />
                 {creating ? "Creando…" : "Crear"}
               </button>
-              <button type="button" className="btn" onClick={() => setShowImport(true)} title="Crear un diagrama a partir de una foto del pizarrón">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setShowImport(true)}
+                title="Crear un diagrama a partir de una foto: de clases o de base de datos"
+              >
                 <Icon name="camera" />
                 Importar desde foto
               </button>
@@ -163,53 +175,52 @@ export default function HomePage() {
           </form>
 
           {/* Lista */}
+          <h2 className="home-section-title">Tus diagramas</h2>
           {loading ? (
             <div className="text-muted" style={{ display: "flex", gap: "var(--sp-2)", alignItems: "center", fontSize: 13 }}>
               <Icon name="loader" className="spinning" />
               Cargando…
             </div>
           ) : diagrams.length === 0 ? (
-            <div
-              className="card"
-              style={{ display: "grid", gap: "var(--sp-2)", justifyItems: "center", textAlign: "center", padding: "var(--sp-6)" }}
-            >
-              <div
-                style={{
-                  width: 44, height: 44, display: "grid", placeItems: "center",
-                  borderRadius: "var(--radius)", background: "var(--surface-2)", color: "var(--text-subtle)",
-                }}
-              >
-                <Icon name="folder" size={20} />
+            <div className="home-empty">
+              <div className="home-empty-icon">
+                <Icon name="class" size={24} />
               </div>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>Todavía no tenés diagramas</div>
-              <div className="text-muted" style={{ fontSize: 13, maxWidth: 380 }}>
-                Creá el primero con el formulario de arriba. Al abrirlo vas a encontrar una
-                guía paso a paso para empezar.
+              <div style={{ fontWeight: 700, fontSize: 15 }}>Todavía no tenés diagramas</div>
+              <div className="text-muted" style={{ fontSize: 13, maxWidth: 400 }}>
+                Creá el primero con el formulario de arriba o importalo desde una foto. Al abrirlo vas
+                a encontrar una guía paso a paso para empezar.
               </div>
             </div>
           ) : (
-            <div style={{ display: "grid", gap: "var(--sp-2)" }}>
-              {diagrams.map((d) => (
+            <div className="home-list">
+              {diagrams.map((d, i) => (
                 <div
                   key={d.id}
-                  className="card"
-                  style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)", padding: "var(--sp-3) var(--sp-4)" }}
+                  className="home-card"
+                  style={{ "--strip": STRIPS[i % STRIPS.length] }}
+                  onClick={() => nav(`/diagram/${d.id}`)}
                 >
-                  <Icon name="file" size={17} style={{ color: "var(--text-subtle)" }} />
+                  <div className="home-card-icon">
+                    <Icon name="class" size={19} />
+                  </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{d.title}</div>
+                    <div className="home-card-title">{d.title}</div>
                     {d.updated_at && (
-                      <div className="text-subtle" style={{ fontSize: 11 }}>
+                      <span className="home-card-date">
                         Modificado {new Date(d.updated_at).toLocaleString()}
-                      </div>
+                      </span>
                     )}
                   </div>
-                  <button className="btn btn-primary btn-sm" onClick={() => nav(`/diagram/${d.id}`)}>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={(e) => { e.stopPropagation(); nav(`/diagram/${d.id}`); }}
+                  >
                     Abrir
                   </button>
                   <button
                     className="btn btn-danger-ghost btn-icon btn-sm"
-                    onClick={() => removeDiagram(d.id, d.title)}
+                    onClick={(e) => { e.stopPropagation(); removeDiagram(d.id, d.title); }}
                     title="Eliminar diagrama"
                   >
                     <Icon name="trash" size={14} />

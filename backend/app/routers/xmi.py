@@ -22,7 +22,7 @@ from app.core.security import get_current_user
 from app.models.uml import Clase, Relacion
 from app.models.user import User
 from app.schemas.xmi import XmiImportSummary
-from app.services.ai_tools import DiagramToolExecutor, ToolError
+from app.services.ai_tools import DiagramToolExecutor, ToolError, estimate_h_grid, grid_positions
 from app.services.xmi import build_xmi, parse_xmi
 from ._helpers import get_my_diagram
 
@@ -85,14 +85,14 @@ async def import_xmi(
     # grilla simple (3 columnas, celdas generosas para que quepan clases
     # con varios atributos) alcanza para que el resultado sea usable de
     # entrada; el usuario siempre puede reacomodar despues.
-    COLS, COL_W, ROW_H = 3, 18, 16
+    positions = grid_positions([estimate_h_grid(len(ic.attributes), len(ic.methods)) for ic in parsed.classes])
     for idx, ic in enumerate(parsed.classes):
         try:
             executor.create_class(
                 name=ic.name,
                 kind=ic.kind,
-                x_grid=(idx % COLS) * COL_W,
-                y_grid=(idx // COLS) * ROW_H,
+                x_grid=positions[idx][0],
+                y_grid=positions[idx][1],
             )
             summary.classes_created.append(ic.name)
         except ToolError:

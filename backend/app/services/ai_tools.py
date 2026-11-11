@@ -28,6 +28,26 @@ from app.utils import realtime_events
 logger = logging.getLogger(__name__)
 
 
+def estimate_h_grid(n_attrs: int, n_methods: int) -> int:
+    """Alto aproximado (en celdas de 16 px) que va a tener la tarjeta de una
+    clase en el editor: encabezado + dos compartimentos + una línea por
+    miembro (~1,1 celdas). Sirve para ubicar clases importadas sin que una
+    tape a la de abajo cuando la tarjeta crece a su alto real."""
+    lines = max(n_attrs, 1) + max(n_methods, 1)
+    return max(6, int(5 + lines * 1.1 + 0.999))
+
+
+def grid_positions(heights: list[int], cols: int = 3, col_w: int = 18, gap: int = 4) -> list[tuple[int, int]]:
+    """(x, y) en grilla para clases con esos altos estimados, `cols` por
+    fila: cada fila empieza debajo de la tarjeta más alta de la anterior."""
+    out, y = [], 0
+    for row_start in range(0, len(heights), cols):
+        row = heights[row_start:row_start + cols]
+        out += [(i * col_w, y) for i in range(len(row))]
+        y += max(row) + gap
+    return out
+
+
 class ToolError(Exception):
     """Error esperado (ej. 'no existe la clase X') que se le devuelve al modelo
     como resultado de error para que pueda corregirse o preguntar."""
