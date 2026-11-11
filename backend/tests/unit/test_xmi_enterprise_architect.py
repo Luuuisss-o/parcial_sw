@@ -101,3 +101,48 @@ def test_export_compatible_con_ea():
     rel = r.relations[0]
     assert (rel.from_name, rel.to_name, rel.type) == ("DetallePedido", "Pedido", "COMPOSITION")
     assert {a.name: a.type for c in r.classes for a in c.attributes}["total"] == "BigDecimal"
+
+
+def _diagrama_encimado():
+    """Tres clases como quedan al importar o al crearlas la IA: dos en el
+    mismo lugar y una con muchos atributos que tapa a la de abajo."""
+    def clase(cid, nombre, x, y, n_attrs):
+        return NS(id=cid, nombre=nombre, metodos=[], outgoing_relations=[], x_grid=x, y_grid=y,
+                  w_grid=12, h_grid=6,
+                  atributos=[NS(id=f"{cid}{i}", nombre=f"campo{i}", tipo="string", requerido=False)
+                             for i in range(n_attrs)])
+    a = clase("a", "Cliente", 0, 0, 12)
+    b = clase("b", "Pedido", 0, 8, 2)      # tapada por Cliente (que crece)
+    c = clase("c", "Producto", 0, 8, 1)    # exactamente encima de Pedido
+    rel = NS(id="r1", tipo=RelType.ASSOCIATION, origen_id="b", destino_id="a", etiqueta=None,
+             mult_origen_min=0, mult_origen_max=None, mult_destino_min=1, mult_destino_max=1)
+    return NS(id="9f1c2b3a-0000-4000-8000-000000000001", title="Ventas",
+              classes=[a, b, c], relations=[rel])
+
+
+def test_export_trae_el_diagrama_de_ea_sin_clases_encimadas():
+    """EA arma el diagrama con xmi:Extension/diagrams: sin eso todas las
+    clases aparecían apiladas en el mismo punto."""
+    root = ET.fromstring(build_xmi(_diagrama_encimado()))
+    model = next(e for e in root.iter() if e.get(f"{XMI}type") == "uml:Model")
+    dg = next(root.iter("diagram"))
+    assert dg.find("model").get("package") == model.get(f"{XMI}id")
+    assert dg.find("properties").get("type") == "Logical"
+
+    boxes = {}
+    for el in dg.find("elements"):
+        geo = dict(kv.split("=", 1) for kv in el.get("geometry").strip(";").split(";"))
+        if "Left" in geo:
+            boxes[el.get("subject")] = tuple(int(geo[k]) for k in ("Left", "Top", "Right", "Bottom"))
+    assert set(boxes) == {"C_a", "C_b", "C_c"}  # una por clase
+    for i, (k1, (l1, t1, r1, b1)) in enumerate(boxes.items()):
+        for k2, (l2, t2, r2, b2) in list(boxes.items())[i + 1:]:
+            assert r1 <= l2 or r2 <= l1 or b1 <= t2 or b2 <= t1, f"{k1} y {k2} se superponen"
+    # La de muchos atributos es lo bastante alta para mostrarlos
+    assert boxes["C_a"][3] - boxes["C_a"][1] >= 12 * 15
+    # El conector de la asociación también va en el diagrama
+    assert any(el.get("subject") == "AS_r1" for el in dg.find("elements"))
+
+    # Y el propio importador sigue leyendo el archivo igual
+    r = parse_xmi(build_xmi(_diagrama_encimado()))
+    assert sorted(c.name for c in r.classes) == ["Cliente", "Pedido", "Producto"]

@@ -140,13 +140,111 @@ def _type_child(parent: ET.Element, tipo: str, used: dict[str, str]) -> None:
 
 
 # =====================================================================
+# Diagrama de Enterprise Architect (posiciones de las clases)
+# =====================================================================
+# Sin esto, EA importa el modelo pero no un diagrama: las clases quedan en
+# el Project Browser y, al arrastrarlas a un diagrama (o al crearlo EA),
+# todas aparecen apiladas en el mismo punto. EA lee el diagrama con la
+# geometria de cada elemento de su extension del XMI
+# (xmi:Extension/diagrams/diagram/elements/element@geometry).
+
+_EA_PX = 16          # px por celda de la grilla del editor
+_EA_MARGIN = 40      # margen del diagrama, px
+_EA_GAP = 40         # separacion minima entre clases, px
+_EA_LINE = 15        # alto de una linea de atributo/operacion en EA, px
+_EA_CHAR = 7         # ancho aproximado de un caracter en EA, px
+
+
+def _ea_guid(prefix: str, value) -> str:
+    """Id con forma de GUID de EA ("EAID_XXXXXXXX_XXXX_..."): EA lo conserva
+    tal cual al importar, asi que importar dos veces el mismo diagrama no
+    duplica su diagrama."""
+    return f"{prefix}_" + str(value).upper().replace("-", "_")
+
+
+def _ea_box(c) -> tuple[int, int]:
+    """Ancho y alto (px) que va a ocupar la clase en EA: el tamaño que tiene
+    en el editor, o el que necesita su texto si es mas grande."""
+    lines = [c.nombre] + [f"- {a.nombre}: {a.tipo}" for a in c.atributos] \
+        + [f"+ {m.nombre}({getattr(m, 'parametros', '') or ''}): {m.tipo_retorno}" for m in c.metodos]
+    width = max((getattr(c, "w_grid", None) or 12) * _EA_PX, max(len(t) for t in lines) * _EA_CHAR + 30)
+    needed = 40 + _EA_LINE * (len(c.atributos) + len(c.metodos)) + 16
+    height = max((getattr(c, "h_grid", None) or 6) * _EA_PX, needed)
+    return int(width), int(height)
+
+
+def _ea_layout(classes) -> dict:
+    """{class_id: (left, top, right, bottom)} sin superposiciones. Parte de
+    la posicion de cada clase en el editor; las que chocan bajan debajo de la
+    que las tapa, en su misma columna (mismo criterio que el reacomodo de la
+    web, frontend/src/components/canvas/utils/layout.js)."""
+    rects = []
+    for c in classes:
+        w, h = _ea_box(c)
+        rects.append({"id": c.id, "x": _EA_MARGIN + (getattr(c, "x_grid", None) or 0) * _EA_PX,
+                      "y": _EA_MARGIN + (getattr(c, "y_grid", None) or 0) * _EA_PX, "w": w, "h": h})
+    rects.sort(key=lambda r: (r["y"], r["x"]))
+
+    def hit(a, b):
+        return (a["x"] < b["x"] + b["w"] + _EA_GAP and b["x"] < a["x"] + a["w"] + _EA_GAP
+                and a["y"] < b["y"] + b["h"] + _EA_GAP and b["y"] < a["y"] + a["h"] + _EA_GAP)
+
+    placed = []
+    for r in rects:
+        while True:
+            hits = [p for p in placed if hit(r, p)]
+            if not hits:
+                break
+            r["y"] = max(p["y"] + p["h"] + _EA_GAP for p in hits)
+        placed.append(r)
+    return {r["id"]: (r["x"], r["y"], r["x"] + r["w"], r["y"] + r["h"]) for r in placed}
+
+
+def _add_ea_diagram(root: ET.Element, diagram, model_id: str, class_ids: dict) -> None:
+    ext = ET.SubElement(root, f"{{{XMI_NS}}}Extension", {
+        "extender": "Enterprise Architect", "extenderID": "6.5",
+    })
+    diagrams = ET.SubElement(ext, "diagrams")
+    dg = ET.SubElement(diagrams, "diagram", {f"{{{XMI_NS}}}id": _ea_guid("EAID", getattr(diagram, "id", "diagrama"))})
+    ET.SubElement(dg, "model", {"package": model_id, "localID": "1", "owner": model_id})
+    ET.SubElement(dg, "properties", {"name": diagram.title or "Diagrama de clases", "type": "Logical"})
+    ET.SubElement(dg, "style1", {"value": "ShowPrivate=1;ShowProtected=1;ShowPublic=1;"
+                                          "ConnectorNotation=UML 2.1;ExplicitNavigability=1;"
+                                          "OpParams=3;ShowOpRetType=1;"})
+    elements = ET.SubElement(dg, "elements")
+
+    layout = _ea_layout(diagram.classes)
+    for seq, c in enumerate(diagram.classes, start=1):
+        left, top, right, bottom = layout[c.id]
+        ET.SubElement(elements, "element", {
+            "geometry": f"Left={left};Top={top};Right={right};Bottom={bottom};",
+            "subject": class_ids[c.id],
+            "seqno": str(seq),
+            "style": "DUID=" + str(c.id).replace("-", "")[:8].upper() + ";",
+        })
+    # Conectores del diagrama (EA dibuja la linea entre los elementos).
+    prefix = {RelType.INHERITANCE: "G", RelType.REALIZATION: "R", RelType.DEPENDENCY: "D"}
+    for r in diagram.relations:
+        if r.origen_id not in layout or r.destino_id not in layout:
+            continue
+        ET.SubElement(elements, "element", {
+            "geometry": "SX=0;SY=0;EX=0;EY=0;EDGE=0;",
+            "subject": f"{prefix.get(r.tipo, 'AS')}_{r.id}",
+            "style": "Mode=3;Hidden=0;",
+        })
+
+
+# =====================================================================
 # Export: diagrama -> XMI
 # =====================================================================
 def build_xmi(diagram) -> bytes:
     root = ET.Element(f"{{{XMI_NS}}}XMI", {f"{{{XMI_NS}}}version": "2.1"})
+    # Id propio por diagrama (no un "model_1" fijo): EA convierte el modelo
+    # en un paquete, y el diagrama de EA lo referencia por este id.
+    model_id = _ea_guid("EAPK", getattr(diagram, "id", "modelo"))
     model = ET.SubElement(root, f"{{{UML_NS}}}Model", {
         f"{{{XMI_NS}}}type": "uml:Model",
-        f"{{{XMI_NS}}}id": "model_1",
+        f"{{{XMI_NS}}}id": model_id,
         "name": diagram.title or "diagram",
     })
 
@@ -339,6 +437,8 @@ def build_xmi(diagram) -> bytes:
             ET.SubElement(assoc, "navigableOwnedEnd", {f"{{{XMI_NS}}}idref": f"E1_{r.id}"})
         if getattr(r, "navegable_destino", False):
             ET.SubElement(assoc, "navigableOwnedEnd", {f"{{{XMI_NS}}}idref": f"E2_{r.id}"})
+
+    _add_ea_diagram(root, diagram, model_id, class_ids)
 
     ET.indent(root, space="  ")
     return b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="utf-8")
