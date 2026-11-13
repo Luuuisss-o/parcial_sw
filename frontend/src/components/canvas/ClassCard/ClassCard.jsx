@@ -68,6 +68,7 @@ export default function ClassCard({
   showLinkPortsOnHover = false,
   forceShowPorts = false, // ⬅️ nuevo
   lockedByOther = null,   // email de quien la tiene bloqueada, o null
+  readOnly = false,       // colaborador de solo lectura: no se mueve ni se redimensiona
 }) {
   const { CELL } = SHEET;
   const headerRef = useRef(null);
@@ -90,6 +91,10 @@ export default function ClassCard({
     enabled: autoGrowHeight && showDetails,
     headerRef, bodyRef, CELL, minH, maxH,
     size, setSize, onResizeEnd, clsId: cls.id,
+    contentKey: details
+      ? `${cls.kind ?? ""}|${details.attrs.length}|${details.meths.length}|` +
+        [...details.attrs, ...details.meths].map((x) => `${x.name}${x.params ?? ""}${x.multiplicity ?? ""}`).join(",")
+      : "",
   });
 
   const left = (pos.x ?? 0) * CELL;
@@ -161,8 +166,9 @@ export default function ClassCard({
       >
         <Header
           innerRef={headerRef}
-          onMouseDown={lockedByOther ? undefined : onHeaderMouseDown}
+          onMouseDown={lockedByOther || readOnly ? undefined : onHeaderMouseDown}
           title={cls.name ?? cls.nombre ?? "Clase"}
+          kind={cls.kind ?? cls.tipo_clase ?? "class"}
           pinned={pinned}
           setPinned={setPinned}
           showCounts={showCounts}
@@ -170,7 +176,13 @@ export default function ClassCard({
           lockedByOther={lockedByOther}
         />
 
-        <Body innerRef={bodyRef} showDetails={showDetails} details={details} size={size} />
+        <Body
+          innerRef={bodyRef}
+          showDetails={showDetails}
+          details={details}
+          size={size}
+          kind={cls.kind ?? cls.tipo_clase ?? "class"}
+        />
       </div>
 
       {/* Handles de resize: 4 bordes + 4 esquinas, para poder crecer en
@@ -178,7 +190,7 @@ export default function ClassCard({
           "Caja visual" (que tiene overflow:hidden por los bordes redondeados)
           porque si no, la parte que sobresale del borde queda recortada y
           deja de recibir clicks. */}
-      {!lockedByOther && (
+      {!lockedByOther && !readOnly && (
         <>
           {/* Esquinas */}
           <div onMouseDown={(e) => onHandleMouseDown(e, "nw")} style={cornerStyle("nw")} title="Redimensionar" />
@@ -195,7 +207,7 @@ export default function ClassCard({
 
       {/* Puertos */}
       <Ports
-        visible={showPorts}
+        visible={showPorts && !readOnly}
         onStartLink={(side, e) =>
           onStartLink?.(cls.id, side, { x: e.clientX, y: e.clientY })
         }

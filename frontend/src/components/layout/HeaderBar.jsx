@@ -30,19 +30,20 @@ export default function HeaderBar({
   onUndo,
   canUndo,
   onOpenCollaborators,
+  onArrange,
+  readOnly = false,
 }) {
   const xmiInputRef = useRef(null);
 
   return (
     <header
+      className="brand-bar"
       style={{
         height: "var(--header-h)",
         display: "flex",
         alignItems: "center",
         gap: "var(--sp-3)",
         padding: "0 var(--sp-4)",
-        borderBottom: "1px solid var(--border)",
-        background: "var(--surface-1)",
         position: "relative",
         zIndex: "var(--z-chrome)",
       }}
@@ -51,11 +52,15 @@ export default function HeaderBar({
         <Icon name="back" />
       </button>
 
+      <span className="brand-logo" aria-hidden="true">
+        <Icon name="class" size={16} />
+      </span>
+
       <div style={{ minWidth: 0 }}>
         <div
           style={{
             fontSize: 14,
-            fontWeight: 600,
+            fontWeight: 700,
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -68,7 +73,19 @@ export default function HeaderBar({
         </div>
       </div>
 
-      <div style={{ marginLeft: "var(--sp-4)", display: "flex", gap: "var(--sp-2)" }}>
+      <div style={{ marginLeft: "var(--sp-4)", display: "flex", gap: "var(--sp-2)", alignItems: "center" }}>
+        {readOnly && (
+          <span
+            className="badge"
+            title="El dueño te invitó con permiso de solo lectura"
+            style={{ background: "rgba(111, 224, 196, 0.15)", color: "var(--brand-mint)", height: 28, padding: "0 10px" }}
+          >
+            <Icon name="eye" size={13} />
+            Solo lectura
+          </span>
+        )}
+        {!readOnly && (
+        <>
         <button
           className={`btn ${insertMode ? "btn-active" : ""}`}
           onClick={() => setInsertMode((v) => !v)}
@@ -88,7 +105,18 @@ export default function HeaderBar({
         </button>
 
         <button
-          className="btn"
+          className="btn btn-icon"
+          onClick={onArrange}
+          disabled={!onArrange}
+          title="Separar las clases que están superpuestas"
+        >
+          <Icon name="relation" />
+        </button>
+        </>
+        )}
+
+        <button
+          className="btn btn-primary"
           onClick={onExport}
           disabled={exporting}
           title="Generar el proyecto Spring Boot a partir de este diagrama"
@@ -97,7 +125,7 @@ export default function HeaderBar({
           {exporting ? "Generando…" : "Exportar backend"}
         </button>
 
-        <div style={{ width: 1, height: 22, background: "var(--border)", alignSelf: "center" }} />
+        <div className="brand-sep" />
 
         <button
           className="btn btn-icon"
@@ -107,7 +135,7 @@ export default function HeaderBar({
           <Icon name="users" />
         </button>
 
-        <div style={{ width: 1, height: 22, background: "var(--border)", alignSelf: "center" }} />
+        <div className="brand-sep" />
 
         <button
           className="btn btn-icon"
@@ -121,7 +149,7 @@ export default function HeaderBar({
         <button
           className="btn btn-icon"
           onClick={() => xmiInputRef.current?.click()}
-          disabled={importingXmi}
+          disabled={importingXmi || readOnly}
           title="Importar un diagrama desde un archivo .xmi"
         >
           <Icon name={importingXmi ? "loader" : "upload"} className={importingXmi ? "spinning" : ""} />
@@ -158,7 +186,7 @@ export default function HeaderBar({
           <Icon name={theme === "dark" ? "sun" : "moon"} />
         </button>
 
-        <div style={{ width: 1, height: 22, background: "var(--border)" }} />
+        <div className="brand-sep" />
 
         <span className="text-muted" style={{ fontSize: 12 }}>
           {email}

@@ -44,3 +44,6 @@ opencode.jsonc
 
 # Enterprise Architect: lock file temporal, se regenera solo al abrir el proyecto
 *.ldb
+
+# Modelo de IA personalizado que aloja el backend para el celular (se sube por API)
+backend/data/

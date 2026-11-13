@@ -1,0 +1,26 @@
+{
+  "question_id": "00000000-0000-0000-0000-000000000001",
+  "question": "agregale un atributo derivado edad",
+  "requester_name": "Bruno Díaz",
+  "requester_email": "bruno@example.com",
+  "solutions_enabled": false,
+  "mode": "AUTO",
+  "diagram": {
+    "clases": [
+      {"nombre": "Persona", "atributos": [{"nombre": "nombre", "tipo": "String", "requerido": true},
+                                          {"nombre": "fechaNacimiento", "tipo": "LocalDate", "requerido": false}],
+       "metodos": [{"nombre": "saludar", "tipo_retorno": "void"}]},
+      {"nombre": "Curso", "atributos": [], "metodos": []}
+    ],
+    "relaciones": [{"origen": "Persona", "destino": "Curso", "tipo": "ASSOCIATION", "etiqueta": null},
+                   {"origen": "Curso", "destino": "Persona", "tipo": "AGGREGATION", "etiqueta": null,
+                    "mult_origen": "1", "mult_destino": "0..*"}]
+  },
+  "team_context": [
+    {"author": "Ana Pérez", "content": "propongo que Persona sea la clase base", "is_ai": false, "addressed_to": null},
+    {"author": "Asistente IA", "content": "Ana, creé la clase Curso.", "is_ai": true, "addressed_to": "Ana Pérez"}
+  ],
+  "history": [
+    {"question": "qué es un atributo derivado?", "answer": "Bruno, es un atributo que se calcula a partir de otros."}
+  ]
+}

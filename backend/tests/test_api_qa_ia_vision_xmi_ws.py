@@ -7,6 +7,7 @@ GEMINI_API_KEY configurada (confirmado antes de escribir esta suite).
 """
 import asyncio
 import io
+import os
 import json
 import time
 
@@ -19,10 +20,23 @@ WS_URL = "ws://localhost:8000"
 QA_EMAIL = "qa.tester@parcial-sw.local"
 QA_PASSWORD = "TestPass123"
 
+# Llaman a Gemini de verdad: corren solo si se pide explicitamente y el
+# backend tiene una GEMINI_API_KEY valida (antes estaban saltadas siempre
+# porque la clave de este entorno era invalida; con una invalida dan falsos
+# positivos -- la tarea en segundo plano falla en silencio).
+requires_gemini = pytest.mark.skipif(
+    os.environ.get("RUN_GEMINI_TESTS") != "1",
+    reason="Requiere RUN_GEMINI_TESTS=1 y una GEMINI_API_KEY valida en el backend",
+)
+
 
 @pytest.fixture(scope="session")
 def client():
-    with httpx.Client(base_url=BASE_URL, timeout=30.0) as c:
+    # Sin keep-alive: uvicorn cierra las conexiones ociosas a los 5 s y, si una
+    # prueba lenta deja la conexion del pool vencida, la siguiente peticion
+    # fallaba al azar con "Connection reset by peer" (no era un error del backend).
+    limits = httpx.Limits(max_keepalive_connections=0)
+    with httpx.Client(base_url=BASE_URL, timeout=30.0, limits=limits) as c:
         yield c
 
 
@@ -61,11 +75,7 @@ def test_cn_ai_001_comando_puntual_aceptado(client, auth_headers, diagram):
     assert r.json()["status"] == "processing"
 
 
-@pytest.mark.skip(
-    reason="GEMINI_API_KEY configurada en este entorno de Docker no es valida "
-    "(Google responde 401 UNAUTHENTICATED). Confirmado con una llamada directa "
-    "el 29/09/2026; requiere una API key real de Google AI Studio para correr."
-)
+@requires_gemini
 def test_cn_ai_001b_comando_se_ejecuta_realmente(client, auth_headers, diagram):
     """Verifica de punta a punta: el comando en lenguaje natural termina
     creando una clase real en la base, no solo aceptando la request."""
@@ -89,12 +99,7 @@ def test_cn_ai_001b_comando_se_ejecuta_realmente(client, auth_headers, diagram):
     assert encontrada, "La clase no aparecio via la API tras 20s de espera al asistente de IA"
 
 
-@pytest.mark.skip(
-    reason="Falso positivo detectado: pasaba porque GEMINI_API_KEY invalida "
-    "hace que la tarea en background falle silenciosamente (401 UNAUTHENTICATED, "
-    "ver logs), no porque el asistente rechazo correctamente la peticion. "
-    "Requiere una API key real de Google AI Studio para validar la regla real."
-)
+@requires_gemini
 def test_cn_ai_002_rechaza_diseno_completo_sin_clases_concretas(client, auth_headers, diagram):
     """Regla de la catedra: el asistente no debe generar un diagrama completo
     desde una descripcion abierta. Se verifica que, tras el comando, NO se
@@ -118,11 +123,7 @@ def test_cn_ai_002_rechaza_diseno_completo_sin_clases_concretas(client, auth_hea
 # A.5 Importacion desde fotografia -- CU-09
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skip(
-    reason="GEMINI_API_KEY configurada en este entorno de Docker no es valida "
-    "(Google responde 401 UNAUTHENTICATED). Confirmado con una llamada directa "
-    "el 29/09/2026; requiere una API key real de Google AI Studio para correr."
-)
+@requires_gemini
 def test_cn_vision_002_imagen_sin_contenido_reconocible(client, auth_headers):
     """Una imagen 1x1 en blanco no deberia contener ninguna clase UML."""
     # PNG 1x1 blanco valido, generado a mano (bytes minimos de un PNG real).
@@ -252,6 +253,18 @@ def test_cn_ws_002_conexion_rechazada_sin_token(diagram):
     asyncio.run(_run())
 
 
+async def _recv_event(ws, event, timeout=5):
+    """Devuelve el proximo mensaje `event`, ignorando los demas (presence,
+    cursores, etc.): desde la Fase 2 el servidor manda "presence" al entrar
+    alguien, y estas pruebas leian el siguiente mensaje a ciegas."""
+    async def _loop():
+        while True:
+            msg = json.loads(await ws.recv())
+            if msg.get("event") == event:
+                return msg
+    return await asyncio.wait_for(_loop(), timeout=timeout)
+
+
 def test_cn_ws_003_lock_y_broadcast_entre_dos_conexiones(client, auth_headers, diagram, token):
     """Usuario A bloquea una clase; Usuario B (misma cuenta, otra conexion,
     simulando otra pestana) debe recibir el evento class.locked."""
@@ -260,17 +273,15 @@ def test_cn_ws_003_lock_y_broadcast_entre_dos_conexiones(client, auth_headers, d
     async def _run():
         uri = f"{WS_URL}/diagrams/{diagram['id']}/ws?token={token}"
         async with websockets.connect(uri) as ws_a, websockets.connect(uri) as ws_b:
-            # Drenar los eventos iniciales (connected + locks.snapshot) de ambos.
             for ws in (ws_a, ws_b):
-                await asyncio.wait_for(ws.recv(), timeout=5)
-                await asyncio.wait_for(ws.recv(), timeout=5)
+                await _recv_event(ws, "locks.snapshot")
 
             await ws_a.send(json.dumps({"action": "lock", "class_id": clase["id"]}))
 
             # ws_a tambien recibe el broadcast (el server no se auto-excluye
             # para eventos de lock, a diferencia de cursor.move).
-            evt_a = json.loads(await asyncio.wait_for(ws_a.recv(), timeout=5))
-            evt_b = json.loads(await asyncio.wait_for(ws_b.recv(), timeout=5))
+            evt_a = await _recv_event(ws_a, "class.locked")
+            evt_b = await _recv_event(ws_b, "class.locked")
             assert evt_a["event"] == "class.locked"
             assert evt_b["event"] == "class.locked"
             assert evt_a["data"]["class_id"] == clase["id"]
@@ -285,16 +296,31 @@ def test_cn_ws_004_lock_denegado_a_segunda_conexion(client, auth_headers, diagra
         uri = f"{WS_URL}/diagrams/{diagram['id']}/ws?token={token}"
         async with websockets.connect(uri) as ws_a, websockets.connect(uri) as ws_b:
             for ws in (ws_a, ws_b):
-                await asyncio.wait_for(ws.recv(), timeout=5)
-                await asyncio.wait_for(ws.recv(), timeout=5)
+                await _recv_event(ws, "locks.snapshot")
 
             await ws_a.send(json.dumps({"action": "lock", "class_id": clase["id"]}))
-            await asyncio.wait_for(ws_a.recv(), timeout=5)  # class.locked para A
-            await asyncio.wait_for(ws_b.recv(), timeout=5)  # class.locked para B
+            await _recv_event(ws_a, "class.locked")
+            await _recv_event(ws_b, "class.locked")
 
             await ws_b.send(json.dumps({"action": "lock", "class_id": clase["id"]}))
-            evt = json.loads(await asyncio.wait_for(ws_b.recv(), timeout=5))
+            evt = await _recv_event(ws_b, "lock.denied")
             assert evt["event"] == "lock.denied"
             assert evt["data"]["class_id"] == clase["id"]
+
+    asyncio.run(_run())
+
+
+def test_cn_ws_005_ping_responde_pong_solo_a_quien_lo_manda(client, auth_headers, diagram, token):
+    """Keepalive: nginx corta el WebSocket tras 100 s sin trafico; el cliente
+    manda ping cada 25 s y el servidor contesta pong (sin difundirlo)."""
+    async def _run():
+        uri = f"{WS_URL}/diagrams/{diagram['id']}/ws?token={token}"
+        async with websockets.connect(uri) as ws_a, websockets.connect(uri) as ws_b:
+            for ws in (ws_a, ws_b):
+                await _recv_event(ws, "locks.snapshot")
+            await ws_a.send(json.dumps({"action": "ping"}))
+            assert (await _recv_event(ws_a, "pong"))["event"] == "pong"
+            with pytest.raises(asyncio.TimeoutError):
+                await _recv_event(ws_b, "pong", timeout=1.5)
 
     asyncio.run(_run())

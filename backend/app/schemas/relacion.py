@@ -2,7 +2,11 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Literal, Union
 from uuid import UUID
 
-RelationType = Literal["ASSOCIATION", "AGGREGATION", "COMPOSITION", "INHERITANCE", "DEPENDENCY"]
+from .uml_notation import clean_optional_text
+
+RelationType = Literal["ASSOCIATION", "AGGREGATION", "COMPOSITION", "INHERITANCE", "DEPENDENCY", "REALIZATION"]
+# Relaciones que no son asociaciones: sin multiplicidad ni roles.
+NO_MULT_TYPES = ("DEPENDENCY", "INHERITANCE", "REALIZATION")
 Anchor = Literal["left", "right", "top", "bottom"]
 
 
@@ -27,6 +31,17 @@ class RelacionCreate(BaseModel):
 
     es_clase_asociacion: bool = False
 
+    # UML 2.5: nombre de rol y navegabilidad de cada extremo
+    src_role: Optional[str] = None
+    dst_role: Optional[str] = None
+    src_navigable: bool = False
+    dst_navigable: bool = False
+
+    @field_validator("src_role", "dst_role")
+    @classmethod
+    def _roles(cls, v):
+        return clean_optional_text(v)
+
     @field_validator("src_offset", "dst_offset", "src_lane", "dst_lane", "src_mult_min", "dst_mult_min")
     @classmethod
     def non_negative(cls, v: Optional[int]) -> Optional[int]:
@@ -43,12 +58,15 @@ class RelacionCreate(BaseModel):
 
     @model_validator(mode="after")
     def normalize_multiplicity(self):
-        if self.type in ("DEPENDENCY", "INHERITANCE"):
+        if self.type in NO_MULT_TYPES:
             # fuerza a null (no aplica)
             self.src_mult_min = 1
             self.src_mult_max = 1
             self.dst_mult_min = 1
             self.dst_mult_max = 1
+            # ni roles ni navegabilidad: no es una asociación
+            self.src_role = self.dst_role = None
+            self.src_navigable = self.dst_navigable = False
         else:
             # validaciones normales
             if isinstance(self.src_mult_max, int) and isinstance(self.src_mult_min, int):
@@ -75,6 +93,16 @@ class RelacionUpdate(BaseModel):
     dst_mult_min: Optional[int] = None
     dst_mult_max: Optional[Union[int, Literal["*"]]] = None
 
+    src_role: Optional[str] = None
+    dst_role: Optional[str] = None
+    src_navigable: Optional[bool] = None
+    dst_navigable: Optional[bool] = None
+
+    @field_validator("src_role", "dst_role")
+    @classmethod
+    def _roles(cls, v):
+        return clean_optional_text(v)
+
     @field_validator("src_offset", "dst_offset", "src_lane", "dst_lane", "src_mult_min", "dst_mult_min")
     @classmethod
     def non_negative(cls, v: Optional[int]) -> Optional[int]:
@@ -91,11 +119,13 @@ class RelacionUpdate(BaseModel):
 
     @model_validator(mode="after")
     def normalize_multiplicity_update(self):
-        if self.type in ("DEPENDENCY", "INHERITANCE"):
+        if self.type in NO_MULT_TYPES:
             self.src_mult_min = 1
             self.src_mult_max = 1
             self.dst_mult_min = 1
             self.dst_mult_max = 1
+            self.src_role = self.dst_role = None
+            self.src_navigable = self.dst_navigable = False
         else:
             if self.src_mult_min is not None and self.src_mult_max is not None:
                 if self.src_mult_max < self.src_mult_min:
@@ -126,6 +156,11 @@ class RelacionOut(BaseModel):
     dst_mult_max: Optional[Union[int, str]] = Field(alias="mult_destino_max")
 
     es_clase_asociacion: bool = False
+
+    src_role: Optional[str] = Field(default=None, alias="rol_origen")
+    dst_role: Optional[str] = Field(default=None, alias="rol_destino")
+    src_navigable: bool = Field(default=False, alias="navegable_origen")
+    dst_navigable: bool = Field(default=False, alias="navegable_destino")
 
     # 🔹 Nombres de las clases
     origen_nombre: str

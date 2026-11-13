@@ -6,7 +6,9 @@
 
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart' show MediaType;
 import '../config.dart';
+import '../models/chat.dart';
 import '../models/diagram.dart';
 import 'auth_service.dart';
 
@@ -22,8 +24,11 @@ class ApiClient {
   final AuthService auth;
   ApiClient(this.auth);
 
-  Uri _u(String path, [Map<String, dynamic>? query]) =>
-      Uri.parse('${AppConfig.apiBaseUrl}$path').replace(
+  /// Se llama cuando el backend rechaza el token (401: venció o es inválido),
+  /// igual que la web (frontend/src/api/client.js): se cierra la sesión.
+  void Function()? onUnauthorized;
+
+  Uri _u(String path, [Map<String, dynamic>? query]) => Uri.parse('${AppConfig.apiBaseUrl}$path').replace(
         queryParameters: query?.map((k, v) => MapEntry(k, '$v')),
       );
 
@@ -36,6 +41,10 @@ class ApiClient {
     if (resp.statusCode >= 200 && resp.statusCode < 300) {
       if (resp.body.isEmpty) return null;
       return jsonDecode(resp.body);
+    }
+    if (resp.statusCode == 401 && auth.token != null) {
+      onUnauthorized?.call();
+      throw ApiException(401, 'Tu sesión venció. Iniciá sesión de nuevo.');
     }
     String detail = 'Error del servidor (${resp.statusCode})';
     try {
@@ -89,6 +98,39 @@ class ApiClient {
     final resp = await http.delete(_u('/diagrams/$diagramId/collaborators/$userId'), headers: _headers);
     _decodeOrThrow(resp);
   }
+
+  // ---------------------------------------------------------------
+  // Importar desde foto (misma API que la web: /vision/detect y /vision/apply)
+  // ---------------------------------------------------------------
+
+  /// Sube la imagen y devuelve lo que la IA leyó, SIN crear nada todavía:
+  /// {source, classes, relations, warning}. El usuario lo revisa antes.
+  Future<Map<String, dynamic>> detectDiagramFromImage(List<int> bytes, String filename) async {
+    final ext = filename.split('.').last.toLowerCase();
+    final mime = switch (ext) {
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      'heic' => 'image/heic',
+      'heif' => 'image/heif',
+      _ => 'image/jpeg',
+    };
+    final req = http.MultipartRequest('POST', _u('/vision/detect'))
+      ..headers.addAll({if (auth.token != null) 'Authorization': 'Bearer ${auth.token}'})
+      ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename, contentType: MediaType.parse(mime)));
+    final resp = await http.Response.fromStream(await req.send());
+    return _decodeOrThrow(_utf8(resp)) as Map<String, dynamic>;
+  }
+
+  /// Crea el diagrama nuevo con lo que el usuario confirmó. Devuelve
+  /// {diagram_id, classes_created, ...}.
+  Future<Map<String, dynamic>> applyDetectedDiagram(Map<String, dynamic> body) async {
+    final resp = await http.post(_u('/vision/apply'), headers: _headers, body: jsonEncode(body));
+    return _decodeOrThrow(_utf8(resp)) as Map<String, dynamic>;
+  }
+
+  /// La respuesta es JSON en UTF-8 aunque el header no declare el charset
+  /// (si no, los nombres con tilde llegarían mal decodificados).
+  http.Response _utf8(http.Response r) => http.Response(utf8.decode(r.bodyBytes), r.statusCode, headers: r.headers);
 
   // ---------------------------------------------------------------
   // Clases
@@ -215,4 +257,70 @@ class ApiClient {
     final resp = await http.delete(_u('/diagrams/relations/$relationId'), headers: _headers);
     _decodeOrThrow(resp);
   }
+
+  // ---------------------------------------------------------------
+  // Chat del equipo (Fase 2) -- mismo contrato que frontend/src/api/chat.js
+  // ---------------------------------------------------------------
+
+  Future<List<ChatMessage>> listChat(String diagramId, {int limit = 50}) async {
+    final resp = await http.get(_u('/diagrams/$diagramId/chat', {'limit': limit}), headers: _headers);
+    final data = _decodeOrThrow(resp) as Map<String, dynamic>;
+    return (data['items'] as List).map((m) => ChatMessage.fromJson(m as Map<String, dynamic>)).toList();
+  }
+
+  /// `answerOnDevice`: la consulta a la IA la responde el modelo local de
+  /// ESTE celular (el servidor no llama a ningún modelo).
+  Future<ChatMessage> sendChat(String diagramId, String text, {bool askAi = false, bool answerOnDevice = false}) async {
+    final resp = await http.post(
+      _u('/diagrams/$diagramId/chat'),
+      headers: _headers,
+      body: jsonEncode({'text': text, 'ask_ai': askAi, 'answer_on_device': answerOnDevice}),
+    );
+    return ChatMessage.fromJson(_decodeOrThrow(resp) as Map<String, dynamic>);
+  }
+
+  /// Memoria híbrida + estado del diagrama para responder una consulta
+  /// propia con el modelo local (ver assistant_prompt.dart).
+  Future<Map<String, dynamic>> questionContext(String diagramId, String questionId) async {
+    final resp = await http.get(_u('/diagrams/$diagramId/chat/$questionId/context'), headers: _headers);
+    return _decodeOrThrow(resp) as Map<String, dynamic>;
+  }
+
+  /// Publica en el chat (para todo el equipo) la respuesta del modelo local.
+  Future<ChatMessage> postDeviceAnswer(
+    String diagramId,
+    String questionId, {
+    String? content,
+    String? error,
+    List<Map<String, dynamic>>? actions,
+    List<Map<String, dynamic>>? proposedActions,
+    String? aiMode,
+    String? modelLabel,
+  }) async {
+    final resp = await http.post(
+      _u('/diagrams/$diagramId/chat/$questionId/answer'),
+      headers: _headers,
+      body: jsonEncode({
+        if (content != null) 'content': content,
+        if (error != null) 'error': error,
+        if (actions != null) 'actions': actions,
+        if (proposedActions != null && proposedActions.isNotEmpty) 'proposed_actions': proposedActions,
+        if (aiMode != null) 'ai_mode': aiMode,
+        if (modelLabel != null) 'model_label': modelLabel,
+      }),
+    );
+    return ChatMessage.fromJson(_decodeOrThrow(resp) as Map<String, dynamic>);
+  }
+
+  // ---------------------------------------------------------------
+  // Modelo personalizado alojado en el servidor (corre en el celular)
+  // ---------------------------------------------------------------
+
+  Future<ModelManifest> assistantModelManifest() async {
+    final resp = await http.get(_u('/models/assistant'), headers: _headers);
+    return ModelManifest.fromJson(_decodeOrThrow(resp) as Map<String, dynamic>);
+  }
+
+  Uri assistantModelUri(String path) => _u(path);
+  Map<String, String> get authHeaders => {if (auth.token != null) 'Authorization': 'Bearer ${auth.token}'};
 }

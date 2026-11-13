@@ -1,0 +1,228 @@
+/* =========================================================================
+   Mis diagramas — mismo lenguaje visual que el login y la app móvil:
+   barra y franja de marca verde petróleo con cuadrícula, tarjetas con
+   franja de color y acción principal en ámbar. Sin degradés.
+   ========================================================================= */
+
+.home {
+  display: grid;
+  grid-template-rows: var(--header-h) 1fr;
+  height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.home-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-5);
+}
+
+.home-bar strong {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* Franja de bienvenida */
+.home-hero {
+  padding: 36px var(--sp-5) 64px;
+  border-bottom: none;
+}
+
+.home-hero-inner {
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+.home-hero h1 {
+  margin: 0 0 6px;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.home-hero h1 em {
+  font-style: normal;
+  color: var(--primary);
+}
+
+.home-hero p {
+  margin: 0;
+  max-width: 60ch;
+  font-size: 14px;
+}
+
+.home-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+}
+
+.home-chips span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(111, 224, 196, 0.35);
+  background: rgba(111, 224, 196, 0.08);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.home-chips svg {
+  color: var(--brand-mint);
+}
+
+/* Contenido: sube sobre la franja */
+.home-content {
+  max-width: 880px;
+  margin: -40px auto 0;
+  padding: 0 var(--sp-5) var(--sp-6);
+  display: grid;
+  gap: var(--sp-5);
+}
+
+.home-create {
+  display: grid;
+  gap: var(--sp-3);
+  padding: var(--sp-5);
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  border-top: 4px solid var(--primary);
+  background: var(--surface-1);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.14);
+}
+
+.home-create-row {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.home-create-row .input {
+  flex: 1;
+  min-width: 220px;
+  height: 40px;
+  font-size: 14px;
+  border-radius: 10px;
+}
+
+.home-create-row .btn {
+  height: 40px;
+  border-radius: 10px;
+}
+
+.home-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* Lista de diagramas: tarjetas con franja de color a la izquierda */
+.home-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: var(--sp-3);
+}
+
+.home-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-4) var(--sp-4) calc(var(--sp-4) + 5px);
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s;
+}
+
+.home-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  background: var(--strip, var(--primary));
+}
+
+.home-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.12);
+}
+
+.home-card-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 11px;
+  background: var(--brand-bar);
+  color: var(--strip, var(--primary));
+}
+
+.home-card-title {
+  font-weight: 700;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-card-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.home-empty {
+  display: grid;
+  gap: var(--sp-2);
+  justify-items: center;
+  text-align: center;
+  padding: var(--sp-6);
+  border-radius: 16px;
+  border: 1px dashed var(--border-strong);
+  background: var(--surface-1);
+}
+
+.home-empty-icon {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 15px;
+  background: var(--brand-bar);
+  color: var(--primary);
+  box-shadow: 4px 4px 0 var(--brand-mint);
+  margin-bottom: var(--sp-2);
+}
+
+@media (max-width: 700px) {
+  .home-list {
+    grid-template-columns: 1fr;
+  }
+  .home-hero h1 {
+    font-size: 24px;
+  }
+  .home-bar .home-email {
+    display: none;
+  }
+}

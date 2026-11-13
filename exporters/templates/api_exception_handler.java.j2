@@ -1,0 +1,58 @@
+package com.test.exceptions;
+
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+
+import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * Errores de la API REST (/api/...) como JSON con un mensaje claro, en vez
+ * del 500 generico de Spring. Solo aplica a los controladores de /api: la
+ * capa UAP arma sus propias respuestas de error.
+ */
+@RestControllerAdvice(basePackages = "com.test.controllers")
+public class ApiExceptionHandler {
+
+    @ExceptionHandler(NotFoundException.class)
+    public ResponseEntity<Map<String, Object>> notFound(NotFoundException e) {
+        return body(HttpStatus.NOT_FOUND, e.getMessage());
+    }
+
+    @ExceptionHandler(BadRequestException.class)
+    public ResponseEntity<Map<String, Object>> badRequest(BadRequestException e) {
+        return body(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> unreadable(HttpMessageNotReadableException e) {
+        return body(HttpStatus.BAD_REQUEST,
+                "El cuerpo no es un JSON valido o algun campo tiene un formato incorrecto (fechas: AAAA-MM-DD)");
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, Object>> badPath(MethodArgumentTypeMismatchException e) {
+        return body(HttpStatus.BAD_REQUEST, "Parametro invalido: " + e.getName());
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<Map<String, Object>> conflict(DataIntegrityViolationException e) {
+        return body(HttpStatus.CONFLICT,
+                "La operacion viola una relacion o restriccion de la base (por ejemplo, borrar un registro que otro todavia referencia)");
+    }
+
+    private ResponseEntity<Map<String, Object>> body(HttpStatus status, String message) {
+        Map<String, Object> b = new LinkedHashMap<>();
+        b.put("timestamp", OffsetDateTime.now().toString());
+        b.put("status", status.value());
+        b.put("error", status.getReasonPhrase());
+        b.put("message", message);
+        return ResponseEntity.status(status).body(b);
+    }
+}

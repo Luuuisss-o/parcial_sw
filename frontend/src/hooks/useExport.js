@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getToken } from "../store/auth";
 
 export default function useExportDiagram() {
   const [loading, setLoading] = useState(false);
@@ -9,7 +10,13 @@ export default function useExportDiagram() {
       const urlApi = `${import.meta.env.VITE_API_URL}/diagrams/${diagramId}/export-download`;
       console.log("📤 Exportando diagrama:", diagramId, "=>", urlApi);
 
-      const res = await fetch(urlApi, { method: "POST" });
+      // El endpoint exige sesión (antes cualquiera podía descargar el
+      // proyecto generado de un diagrama ajeno conociendo su id).
+      const token = getToken();
+      const res = await fetch(urlApi, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
 
       console.log("📥 Respuesta:", res.status, res.statusText);
 
@@ -18,7 +25,7 @@ export default function useExportDiagram() {
         try {
           const text = await res.text();
           errorMsg = text || res.statusText;
-        } catch (e) {
+        } catch {
           errorMsg = res.statusText;
         }
         throw new Error(`❌ Error al exportar (${res.status}): ${errorMsg}`);

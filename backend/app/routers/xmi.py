@@ -22,7 +22,7 @@ from app.core.security import get_current_user
 from app.models.uml import Clase, Relacion
 from app.models.user import User
 from app.schemas.xmi import XmiImportSummary
-from app.services.ai_tools import DiagramToolExecutor, ToolError
+from app.services.ai_tools import DiagramToolExecutor, ToolError, estimate_h_grid, grid_positions
 from app.services.xmi import build_xmi, parse_xmi
 from ._helpers import get_my_diagram
 
@@ -62,7 +62,7 @@ async def import_xmi(
     db: Session = Depends(get_db),
     me: User = Depends(get_current_user),
 ):
-    diagram = get_my_diagram(db, me, diagram_id)
+    diagram = get_my_diagram(db, me, diagram_id, edit=True)
     content = await file.read()
     if not content:
         raise HTTPException(400, "El archivo esta vacio")
@@ -75,7 +75,7 @@ async def import_xmi(
             + " ".join(parsed.warnings),
         )
 
-    executor = DiagramToolExecutor(db, diagram)
+    executor = DiagramToolExecutor(db, diagram, actor_email=me.email)
     summary = XmiImportSummary(warnings=list(parsed.warnings))
 
     # --- Clases + atributos ---
@@ -85,13 +85,14 @@ async def import_xmi(
     # grilla simple (3 columnas, celdas generosas para que quepan clases
     # con varios atributos) alcanza para que el resultado sea usable de
     # entrada; el usuario siempre puede reacomodar despues.
-    COLS, COL_W, ROW_H = 3, 18, 16
+    positions = grid_positions([estimate_h_grid(len(ic.attributes), len(ic.methods)) for ic in parsed.classes])
     for idx, ic in enumerate(parsed.classes):
         try:
             executor.create_class(
                 name=ic.name,
-                x_grid=(idx % COLS) * COL_W,
-                y_grid=(idx // COLS) * ROW_H,
+                kind=ic.kind,
+                x_grid=positions[idx][0],
+                y_grid=positions[idx][1],
             )
             summary.classes_created.append(ic.name)
         except ToolError:
@@ -101,6 +102,8 @@ async def import_xmi(
             try:
                 executor.add_attribute(
                     class_name=ic.name, name=attr.name, type=attr.type, required=attr.required,
+                    visibility=attr.visibility, is_static=attr.is_static, is_derived=attr.is_derived,
+                    multiplicity=attr.multiplicity, default_value=attr.default_value,
                 )
                 summary.attributes_created += 1
             except ToolError as e:
@@ -111,6 +114,8 @@ async def import_xmi(
             try:
                 executor.add_method(
                     class_name=ic.name, name=method.name, return_type=method.return_type,
+                    visibility=method.visibility, is_static=method.is_static,
+                    is_abstract=method.is_abstract, params=method.params,
                 )
                 summary.methods_created += 1
             except ToolError as e:
@@ -141,6 +146,10 @@ async def import_xmi(
                 src_multiplicity=_mult_str(ir.src_mult_min, ir.src_mult_max),
                 dst_multiplicity=_mult_str(ir.dst_mult_min, ir.dst_mult_max),
                 es_clase_asociacion=ir.es_clase_asociacion,
+                src_role=ir.src_role,
+                dst_role=ir.dst_role,
+                src_navigable=ir.src_navigable,
+                dst_navigable=ir.dst_navigable,
             )
             summary.relations_created += 1
         except ToolError as e:

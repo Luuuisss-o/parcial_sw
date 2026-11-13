@@ -5,26 +5,39 @@
    ========================================================================= */
 
 :root {
-  /* Superficies, de más profunda a más elevada */
-  --bg: #0d1117;
-  --surface-1: #131823;
-  --surface-2: #1a2030;
-  --surface-3: #232a3d;
+  /* Paleta "bosque y ámbar" (la del login). Superficies, de más profunda a
+     más elevada: verde petróleo oscuro. */
+  --bg: #0b1514;
+  --surface-1: #11201e;
+  --surface-2: #172a27;
+  --surface-3: #1e3531;
 
   /* Bordes */
-  --border: #262d3d;
-  --border-strong: #354055;
+  --border: #213a36;
+  --border-strong: #2d4b46;
 
   /* Texto */
-  --text: #e6e9f0;
-  --text-muted: #9aa4b8;
-  --text-subtle: #6b7689;
+  --text: #ecf3f0;
+  --text-muted: #9db5ae;
+  --text-subtle: #6c8781;
 
-  /* Acento */
-  --accent: #4f7cff;
-  --accent-hover: #3d6bef;
-  --accent-soft: rgba(79, 124, 255, 0.12);
-  --accent-text: #ffffff;
+  /* Acento (selección, foco, enlaces): verde azulado. Se lee bien como
+     texto sobre los dos temas, cosa que el ámbar no logra sobre crema. */
+  --accent: #3fc7a8;
+  --accent-hover: #34b095;
+  --accent-soft: rgba(63, 199, 168, 0.14);
+  --accent-text: #06221d;
+
+  /* Acción principal (botones "Crear", "Abrir"...): ámbar, como "Ingresar". */
+  --primary: #f4a940;
+  --primary-hover: #e8962a;
+  --primary-text: #1d1405;
+
+  /* Barra superior de marca (igual en ambos temas) */
+  --brand-bar: #0e3b36;
+  --brand-bar-text: #eef6f2;
+  --brand-bar-muted: #a8c9bf;
+  --brand-mint: #6fe0c4;
 
   /* Estados */
   --success: #2ea865;
@@ -76,16 +89,21 @@
 }
 
 [data-theme="light"] {
-  --bg: #f6f7f9;
-  --surface-1: #ffffff;
-  --surface-2: #f0f2f5;
-  --surface-3: #e4e7ec;
-  --border: #dde1e7;
-  --border-strong: #c4cad4;
-  --text: #161c26;
-  --text-muted: #5a6474;
-  --text-subtle: #858e9e;
-  --accent-soft: rgba(79, 124, 255, 0.1);
+  --bg: #f6f1e7;
+  --surface-1: #fffdf8;
+  --surface-2: #f3ecdf;
+  --surface-3: #e9e0cd;
+  --border: #e4dac6;
+  --border-strong: #d0c3a8;
+  --text: #1c2a27;
+  --text-muted: #5b6b66;
+  --text-subtle: #8a978f;
+  --accent: #1f9c85;
+  --accent-hover: #188571;
+  --accent-soft: rgba(31, 156, 133, 0.12);
+  --accent-text: #ffffff;
+  --primary: #f0a238;
+  --primary-hover: #e08f22;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
@@ -139,14 +157,15 @@ body {
 }
 
 .btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-text);
+  font-weight: 600;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 
 .btn-ghost {
@@ -383,4 +402,70 @@ body {
 
 .spinning {
   animation: spin 1s linear infinite;
+}
+
+/* ============================ Barra de marca ============================ */
+/* Barra superior verde petróleo con cuadrícula tenue (como el panel del
+   login y los encabezados de la app móvil). Igual en ambos temas. */
+.brand-bar {
+  background-color: var(--brand-bar);
+  background-image:
+    linear-gradient(rgba(111, 224, 196, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(111, 224, 196, 0.07) 1px, transparent 1px);
+  background-size: 24px 24px;
+  color: var(--brand-bar-text);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.25);
+}
+
+.brand-bar .text-muted,
+.brand-bar .text-subtle {
+  color: var(--brand-bar-muted);
+}
+
+.brand-bar .btn {
+  background: rgba(111, 224, 196, 0.08);
+  border-color: rgba(111, 224, 196, 0.28);
+  color: var(--brand-bar-text);
+}
+
+.brand-bar .btn:hover:not(:disabled) {
+  background: rgba(111, 224, 196, 0.18);
+  border-color: rgba(111, 224, 196, 0.45);
+}
+
+.brand-bar .btn-ghost {
+  background: transparent;
+  border-color: transparent;
+}
+
+.brand-bar .btn-active {
+  background: var(--brand-mint);
+  border-color: var(--brand-mint);
+  color: #06221d;
+}
+
+.brand-bar .btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-text);
+}
+
+.brand-bar .brand-sep {
+  width: 1px;
+  height: 22px;
+  background: rgba(111, 224, 196, 0.25);
+  align-self: center;
+}
+
+/* Logo: cuadrado ámbar con sombra menta desplazada */
+.brand-logo {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--primary);
+  color: var(--primary-text);
+  box-shadow: 3px 3px 0 var(--brand-mint);
 }

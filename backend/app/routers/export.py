@@ -7,7 +7,10 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 
 from app.db import get_db
+from app.core.security import get_current_user
 from app.models.uml import Diagram
+from app.models.user import User
+from app.routers._helpers import get_my_diagram
 
 # Paths
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
@@ -25,7 +28,16 @@ from exporters.generators.project_builder import build_project
 router = APIRouter(prefix="/diagrams", tags=["export"])
 
 
+# Notación UML 2.5 que no se traduce a entidades JPA: las interfaces y las
+# enumeraciones no son tablas (un atributo cuyo tipo es una enumeración se
+# guarda como texto, el default de map_type), una realización no es una
+# relación entre tablas, y los atributos derivados (/) o estáticos no son
+# columnas.
+_NOT_PERSISTED_KINDS = ("interface", "enumeration")
+
+
 def build_diagram_dict(diagram: Diagram) -> dict:
+    skipped = {c.id for c in diagram.classes if (c.tipo_clase or "class") in _NOT_PERSISTED_KINDS}
     return {
         "id": str(diagram.id),
         "title": diagram.title,
@@ -36,6 +48,7 @@ def build_diagram_dict(diagram: Diagram) -> dict:
                 "attributes": [
                     {"name": a.nombre, "type": a.tipo, "required": a.requerido}
                     for a in c.atributos
+                    if not a.es_derivado and not a.es_estatico
                 ],
                 "methods": [
                     {"name": m.nombre, "return_type": m.tipo_retorno}
@@ -43,6 +56,7 @@ def build_diagram_dict(diagram: Diagram) -> dict:
                 ],
             }
             for c in diagram.classes
+            if c.id not in skipped
         ],
         "relations": [
             {
@@ -60,6 +74,8 @@ def build_diagram_dict(diagram: Diagram) -> dict:
                 "role_to": r.destino.nombre.lower(),
             }
             for r in diagram.relations
+            if r.tipo.value != "REALIZATION"
+            and r.origen_id not in skipped and r.destino_id not in skipped
         ],
     }
 
@@ -76,10 +92,11 @@ def zip_generated_project(output_dir: str, zip_path: str):
     return zip_path
 
 @router.post("/{diagram_id}/export-download")
-def export_and_download(diagram_id: UUID, db: Session = Depends(get_db)):
-    diagram = db.query(Diagram).filter(Diagram.id == diagram_id).first()
-    if not diagram:
-        raise HTTPException(404, "Diagrama no encontrado")
+def export_and_download(diagram_id: UUID, db: Session = Depends(get_db),
+                        me: User = Depends(get_current_user)):
+    # Antes no pedia sesion: con solo conocer el id se descargaba el
+    # proyecto generado de cualquier diagrama. Mismo control que el resto.
+    diagram = get_my_diagram(db, me, diagram_id)
 
     json_path = os.path.join(EXPORT_DIR, f"diagram_{diagram_id}.json")
     output_dir = os.path.join(PROJECT_ROOT, "exporters", "output", f"generated_project_{diagram_id}")

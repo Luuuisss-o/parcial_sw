@@ -1,0 +1,2 @@
+# Scripts de shell siempre con LF: con CRLF (Windows) el contenedor no los puede ejecutar
+*.sh text eol=lf

@@ -19,6 +19,7 @@ import {
 import useDebouncedCallback from "./useDebouncedCallback";
 import { connect, disconnect, onEvent as subscribe } from "../api/realtime";
 import useUndo from "../store/undo";
+import { hasOverlaps, resolveOverlaps } from "../components/canvas/utils/layout";
 
 /** Devuelve "campo", "campo2", "campo3"… evitando los nombres ya usados. */
 function nextFreeName(base, taken) {
@@ -45,6 +46,21 @@ function normalizeMeth(m) {
     return_type: m.return_type ?? m.tipo_retorno,
   };
 }
+
+// Notación UML 2.5 de un atributo/método, para recrearlo igual al deshacer.
+const attrNotation = (a) => ({
+  visibility: a.visibility,
+  is_static: a.is_static,
+  is_derived: a.is_derived,
+  multiplicity: a.multiplicity,
+  default_value: a.default_value,
+});
+const methNotation = (m) => ({
+  visibility: m.visibility,
+  is_static: m.is_static,
+  is_abstract: m.is_abstract,
+  params: m.params,
+});
 
 export default function useClassesAndDetails(diagram) {
   // 🔹 Lista de clases
@@ -76,7 +92,10 @@ export default function useClassesAndDetails(diagram) {
   };
 
   // ====== CARGA DE CLASES ======
-  async function loadClasses() {
+  // refreshDetails: tras una reconexión del WebSocket hay que volver a pedir
+  // atributos y métodos de TODAS las clases (pudieron cambiar mientras
+  // estábamos desconectados), no solo los de las clases nuevas.
+  async function loadClasses({ refreshDetails = false } = {}) {
     try {
       const items = await listClasses(diagram?.id);
       setClasses(items || []);
@@ -84,7 +103,7 @@ export default function useClassesAndDetails(diagram) {
 
       await Promise.all(
         (items || []).map((c) =>
-          detailsByClass[c.id] ? Promise.resolve() : fetchDetails(c.id)
+          detailsByClass[c.id] && !refreshDetails ? Promise.resolve() : fetchDetails(c.id)
         )
       );
     } catch {
@@ -113,6 +132,8 @@ export default function useClassesAndDetails(diagram) {
       // entrante se aplicaria varias veces al estado.
       const offs = [];
       const onEvent = (event, cb) => offs.push(subscribe(event, cb));
+
+      onEvent("reconnected", () => loadClasses({ refreshDetails: true }));
 
       onEvent("class.created", (c) => {
         // El que creó la clase también recibe su propio broadcast, así que
@@ -280,6 +301,21 @@ export default function useClassesAndDetails(diagram) {
     }
   }
 
+  // ====== TIPO DE CLASE (UML 2.5) ======
+  async function handleKindChange(classId, kind) {
+    const antes = classes.find((c) => c.id === classId);
+    const updated = await updateClass(classId, { kind });
+    setClasses((prev) => prev.map((c) => (c.id === classId ? { ...c, ...updated } : c)));
+    if (antes && antes.kind !== kind) {
+      const previo = antes.kind ?? "class";
+      pushUndo(`cambiar el tipo de ${antes.name ?? antes.nombre}`, async () => {
+        const back = await updateClass(classId, { kind: previo });
+        setClasses((prev) => prev.map((c) => (c.id === classId ? { ...c, ...back } : c)));
+      });
+    }
+    return updated;
+  }
+
   // ====== RENAME ======
   const debouncedSave = useDebouncedCallback(async (classId, name) => {
     const updated = await updateClass(classId, { name });
@@ -293,6 +329,34 @@ export default function useClassesAndDetails(diagram) {
     } catch (e) {
       alert(e?.response?.data?.detail || "No se pudo renombrar la clase");
     }
+  }
+
+  // ====== SEPARAR CLASES SUPERPUESTAS ======
+  // Un diagrama importado (foto, XMI) o armado por la IA ubica las clases en
+  // una grilla fija, pero cada tarjeta crece según su contenido y termina
+  // tapando a la de abajo. Mueve solo las que hace falta (ver
+  // utils/layout.js), guarda las posiciones y deja un único Ctrl+Z que
+  // restaura todas. Devuelve cuántas clases movió.
+  async function arrangeOverlaps({ onlyIfOverlapping = false } = {}) {
+    const rects = classes.map((c) => ({
+      id: c.id, x: c.x_grid ?? 0, y: c.y_grid ?? 0, w: c.w_grid ?? 12, h: c.h_grid ?? 6,
+    }));
+    if (onlyIfOverlapping && !hasOverlaps(rects)) return 0;
+    const moves = resolveOverlaps(rects);
+    if (moves.size === 0) return 0;
+
+    const antes = new Map(rects.map((r) => [r.id, { x_grid: r.x, y_grid: r.y }]));
+    setClasses((prev) =>
+      prev.map((c) => (moves.has(c.id) ? { ...c, x_grid: moves.get(c.id).x, y_grid: moves.get(c.id).y } : c))
+    );
+    await Promise.all(
+      [...moves].map(([id, p]) => updateClassPosition(id, { x_grid: p.x, y_grid: p.y }).catch(() => null))
+    );
+    pushUndo(`acomodar ${moves.size} clase${moves.size === 1 ? "" : "s"} superpuesta${moves.size === 1 ? "" : "s"}`, async () => {
+      await Promise.all([...moves.keys()].map((id) => updateClassPosition(id, antes.get(id))));
+      setClasses((prev) => prev.map((c) => (moves.has(c.id) ? { ...c, ...antes.get(c.id) } : c)));
+    });
+    return moves.size;
   }
 
   // ====== DRAG/RESIZE ======
@@ -372,6 +436,7 @@ export default function useClassesAndDetails(diagram) {
         pushUndo(`eliminar la clase ${clase.name ?? clase.nombre}`, async () => {
           const recreada = await apiCreateClass(diagram.id, {
             name: clase.name ?? clase.nombre,
+            kind: clase.kind,
             x_grid: clase.x_grid, y_grid: clase.y_grid,
             w_grid: clase.w_grid, h_grid: clase.h_grid,
             z_index: clase.z_index,
@@ -381,12 +446,14 @@ export default function useClassesAndDetails(diagram) {
               name: a.name ?? a.nombre,
               type: a.type ?? a.tipo ?? "string",
               required: !!a.required,
+              ...attrNotation(a),
             });
           }
           for (const m of detalles?.meths || []) {
             await createMethod(recreada.id, {
               name: m.name ?? m.nombre,
               return_type: m.return_type ?? "void",
+              ...methNotation(m),
             });
           }
           await loadClasses();
@@ -446,6 +513,8 @@ export default function useClassesAndDetails(diagram) {
     handleCanvasClick,
     debouncedSave,
     handleRename,
+    handleKindChange,
+    arrangeOverlaps,
     handleDragEnd,
     handleResizeEnd,
     handleDelete,
@@ -488,6 +557,7 @@ export default function useClassesAndDetails(diagram) {
             name: previo.name ?? previo.nombre,
             type: previo.type ?? previo.tipo ?? "string",
             required: !!previo.required,
+            ...attrNotation(previo),
           });
           await fetchDetails(classId);
         });
@@ -526,6 +596,7 @@ export default function useClassesAndDetails(diagram) {
           await createMethod(classId, {
             name: previo.name ?? previo.nombre,
             return_type: previo.return_type ?? "void",
+            ...methNotation(previo),
           });
           await fetchDetails(classId);
         });

@@ -43,16 +43,25 @@ async def create_class(
     me: User = Depends(get_current_user),
 ):
     logger.info(f"➕ [CREATE] clase -> diagram_id={diagram_id}, user={me.id}, body={body}")
-    d = get_my_diagram(db, me, diagram_id)
+    d = get_my_diagram(db, me, diagram_id, edit=True)
 
     _ensure_unique_class_name(db, d.id, body.name)
+
+    # Sin coordenadas (la app movil, o cualquier cliente que no elige la
+    # posicion): se ubica en el primer lugar libre de la grilla, igual que las
+    # clases que crea la IA. La web siempre manda la posicion del clic.
+    x_grid, y_grid = body.x_grid, body.y_grid
+    if x_grid is None and y_grid is None:
+        from app.services.ai_tools import DiagramToolExecutor
+        x_grid, y_grid = DiagramToolExecutor(db, d)._free_slot()
 
     try:
         c = Clase(
             nombre=body.name,
+            tipo_clase=body.kind,
             diagram_id=d.id,
-            x_grid=body.x_grid or 0,
-            y_grid=body.y_grid or 0,
+            x_grid=x_grid or 0,
+            y_grid=y_grid or 0,
             w_grid=body.w_grid or 12,
             h_grid=body.h_grid or 6,
             z_index=body.z_index or 0,
@@ -104,13 +113,14 @@ async def update_class(
     me: User = Depends(get_current_user),
 ):
     logger.info(f"✏️ [UPDATE] clase -> class_id={class_id}, user={me.id}, body={body}")
-    c = get_my_class(db, me, class_id)
+    c = get_my_class(db, me, class_id, edit=True)
 
     try:
         if body.name is not None and body.name != c.nombre:
             _ensure_unique_class_name(db, c.diagram_id, body.name, exclude_id=c.id)
             c.nombre = body.name
 
+        if body.kind is not None:    c.tipo_clase = body.kind
         if body.x_grid is not None:  c.x_grid  = body.x_grid
         if body.y_grid is not None:  c.y_grid  = body.y_grid
         if body.w_grid is not None:  c.w_grid  = body.w_grid
@@ -135,7 +145,7 @@ async def delete_class(
     me: User = Depends(get_current_user),
 ):
     logger.info(f"🗑️ [DELETE] clase -> class_id={class_id}, user={me.id}")
-    c = get_my_class(db, me, class_id)
+    c = get_my_class(db, me, class_id, edit=True)
     diagram_id = c.diagram_id
     class_id_val = c.id
 

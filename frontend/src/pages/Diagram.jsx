@@ -32,6 +32,7 @@ import HelpGuide from "../components/common/HelpGuide";
 import Icon from "../components/common/Icon";
 import { exportXmi, importXmi } from "../api/xmi";
 import { deleteRelation as apiDeleteRelation } from "../api/relations";
+import { onEvent as onRealtimeEvent } from "../api/realtime";
 
 // ===== layout =====
 import HeaderBar from "../components/layout/HeaderBar";
@@ -47,7 +48,31 @@ export default function DiagramDashboard() {
   const email = useAuth((s) => s.email);
 
   const { theme, toggleTheme } = useTheme();
-  const { diagram, loading, err } = useDiagram(id);
+  const { diagram, loading, err, reload: reloadDiagram } = useDiagram(id);
+  // Colaborador de solo lectura: ve todo, usa el chat y exporta, pero no
+  // modifica (el backend además lo rechaza con 403).
+  const readOnly = diagram?.my_role === "VIEWER";
+  const readOnlyRef = useRef(false);
+  readOnlyRef.current = readOnly;
+
+  // El dueño me cambió el permiso (o me quitó) con el diagrama abierto: se
+  // recarga mi rol para pasar a solo lectura / edición sin recargar la página.
+  useEffect(() => {
+    if (!diagram?.id) return;
+    return onRealtimeEvent("collaborators.changed", (data) => {
+      if ((data?.email || "").toLowerCase() !== (email || "").toLowerCase()) return;
+      reloadDiagram();
+      setAviso({
+        tipo: data.role ? "ok" : "error",
+        texto: data.role === "VIEWER"
+          ? "El dueño te dio acceso de solo lectura a este diagrama."
+          : data.role
+            ? "El dueño te dio permiso para editar este diagrama."
+            : "El dueño te quitó el acceso a este diagrama.",
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diagram?.id, email]);
 
   const [linking, setLinking] = useState(null);
   const [camera, setCamera] = useState({ x: 0, y: 0, z: 1 });
@@ -117,10 +142,53 @@ export default function DiagramDashboard() {
     handleCanvasClick,
     handleDragEnd, handleResizeEnd,
     handleDelete,
+    handleKindChange,
+    arrangeOverlaps,
     addAttr, patchAttr, removeAttr,
     addMeth, patchMeth, removeMeth,
     createAssociationClass,
   } = useClassesAndDetails(diagram);
+
+  // Al entrar a un diagrama con clases superpuestas (típico de uno importado
+  // desde una foto o un XMI, o armado por la IA), se separan solas. Una vez
+  // por diagrama, cuando ya están todos los detalles cargados y las tarjetas
+  // tuvieron tiempo de crecer a su alto real (useAutoGrow).
+  const arrangedFor = useRef(null);
+  // Siempre la versión más reciente: la del render en que se agendó el
+  // temporizador vería los altos de antes de que las tarjetas crecieran.
+  const arrangeRef = useRef(arrangeOverlaps);
+  arrangeRef.current = arrangeOverlaps;
+  const allDetailsLoaded = classes.length > 0 && classes.every((c) => detailsByClass[c.id]);
+  useEffect(() => {
+    if (!diagram?.id || readOnly || !allDetailsLoaded || arrangedFor.current === diagram.id) return;
+    const t = setTimeout(async () => {
+      arrangedFor.current = diagram.id;
+      const n = await arrangeRef.current({ onlyIfOverlapping: true });
+      if (n > 0) {
+        setAviso({
+          tipo: "ok",
+          texto: `Acomodé ${n} clase${n === 1 ? "" : "s"} que estaba${n === 1 ? "" : "n"} superpuesta${n === 1 ? "" : "s"} (Ctrl+Z para volver)`,
+        });
+      }
+    }, 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diagram?.id, allDetailsLoaded]);
+
+  async function handleArrange() {
+    const n = await arrangeOverlaps();
+    setAviso(
+      n > 0
+        ? { tipo: "ok", texto: `Acomodé ${n} clase${n === 1 ? "" : "s"} (Ctrl+Z para volver)` }
+        : { tipo: "vacio", texto: "No hay clases superpuestas" }
+    );
+  }
+
+  // Enumeraciones del diagrama: el Inspector las ofrece como tipo de atributo.
+  const enumNames = classes
+    .filter((c) => c.kind === "enumeration")
+    .map((c) => c.name ?? c.nombre)
+    .filter(Boolean);
 
   // =====================================================
   // Cursores en vivo de los demás colaboradores (estilo Miro/Figma).
@@ -148,12 +216,13 @@ export default function DiagramDashboard() {
 
   const lockedClassRef = useRef(null);
   useEffect(() => {
-    if (lockedClassRef.current && lockedClassRef.current !== selectedId) {
+    // Al pasar a solo lectura también se suelta la clase que tenía tomada.
+    if (lockedClassRef.current && (lockedClassRef.current !== selectedId || readOnly)) {
       unlockClass(lockedClassRef.current);
     }
-    if (selectedId) lockClass(selectedId);
+    if (selectedId && !readOnly) lockClass(selectedId);
     lockedClassRef.current = selectedId;
-  }, [selectedId, lockClass, unlockClass]);
+  }, [selectedId, lockClass, unlockClass, readOnly]);
 
   // Al salir del diagrama (desmontar), soltar el lock que haya quedado.
   useEffect(() => {
@@ -202,6 +271,7 @@ export default function DiagramDashboard() {
       if (escribiendo) return;
 
       e.preventDefault();
+      if (readOnlyRef.current) return;
       deshacer();
     };
 
@@ -410,6 +480,8 @@ export default function DiagramDashboard() {
         onUndo={deshacer}
         canUndo={undoCount > 0}
         onOpenCollaborators={() => setShowCollaborators(true)}
+        onArrange={handleArrange}
+        readOnly={readOnly}
       />
 
       <div style={{ display: "flex", minHeight: 0 }}>
@@ -535,13 +607,16 @@ export default function DiagramDashboard() {
                   setSelectedId(cid);
                   setSelectedRelId(null);
                 }}
-                onDragEnd={handleDragEnd}
-                onResizeEnd={handleResizeEnd}
+                onDragEnd={readOnly ? undefined : handleDragEnd}
+                // Un lector no guarda el alto que la tarjeta calcula sola
+                // (sería un 403 y, al recargar, otro intento: un ciclo).
+                onResizeEnd={readOnly ? undefined : handleResizeEnd}
+                readOnly={readOnly}
                 details={detailsByClass[c.id]}
                 alwaysShowDetails={true}
                 showLinkPortsOnHover={true}
                 forceShowPorts={!!linking && c.id !== linking?.fromId}
-                onStartLink={(fromId, side, pt) => setLinking({ fromId, fromSide: side, cursor: pt })}
+                onStartLink={readOnly ? undefined : (fromId, side, pt) => setLinking({ fromId, fromSide: side, cursor: pt })}
                 lockedByOther={isLockedByOther(c.id) ? lockOwner(c.id) : null}
               />
             ))}
@@ -554,7 +629,7 @@ export default function DiagramDashboard() {
             camera={camera}
             selectedRelId={selectedRelId}
             onSelectRelation={(rid) => { setSelectedRelId(rid); setSelectedId(null); }}
-            onUpdateRelation={(relationId, patch) => handleUpdateRelation(patch, relationId)}
+            onUpdateRelation={readOnly ? undefined : (relationId, patch) => handleUpdateRelation(patch, relationId)}
           />
 
           {/* Aviso de deshacer */}
@@ -605,6 +680,7 @@ export default function DiagramDashboard() {
             relation={selectedRel}
             onUpdate={handleUpdateRelation}
             onDelete={handleDeleteRelation}
+            readOnly={readOnly}
           />
         ) : (
           <Inspector
@@ -618,6 +694,9 @@ export default function DiagramDashboard() {
             onAddMeth={(cid) => addMeth(cid)}
             onPatchMeth={(cid, mid, patch) => patchMeth(cid, mid, patch)}
             onRemoveMeth={(cid, mid) => removeMeth(cid, mid)}
+            onKindChange={handleKindChange}
+            enumNames={enumNames}
+            readOnly={readOnly}
           />
         )}
       </div>

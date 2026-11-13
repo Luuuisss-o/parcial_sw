@@ -18,7 +18,9 @@ QA_PASSWORD = "TestPass123"
 
 @pytest.fixture(scope="session")
 def client():
-    with httpx.Client(base_url=BASE_URL, timeout=15.0) as c:
+    # Sin keep-alive: evita "Connection reset by peer" al reusar una conexion
+    # que uvicorn ya cerro por inactividad (falla al azar, no del backend).
+    with httpx.Client(base_url=BASE_URL, timeout=15.0, limits=httpx.Limits(max_keepalive_connections=0)) as c:
         yield c
 
 
@@ -138,16 +140,21 @@ def test_cn_uml_006_herencia_fuerza_multiplicidad_1a1(client, auth_headers, diag
 # A.7 Exportacion Spring Boot (hallazgo de seguridad)
 # ---------------------------------------------------------------------------
 
-def test_cn_exp_004_export_sin_auth(client, auth_headers, diagram):
-    # El validador exige al menos una clase en el diagrama antes de exportar
-    # ("El diagrama debe tener al menos una clase."); se agrega para aislar
-    # la variable real bajo prueba: la ausencia de header Authorization.
+def test_cn_exp_004_export_sin_auth_rechazado(client, auth_headers, diagram):
+    # Antes respondia 200 sin sesion (cualquiera descargaba el proyecto
+    # generado de un diagrama ajeno conociendo su id). Ahora exige sesion.
     client.post(f"/diagrams/{diagram['id']}/classes", json={"name": "ClaseParaExportar"}, headers=auth_headers)
     r = client.post(f"/diagrams/{diagram['id']}/export-download")
+    assert r.status_code in (401, 403)
+
+
+def test_cn_exp_005_export_con_auth_descarga_zip(client, auth_headers, diagram):
+    client.post(f"/diagrams/{diagram['id']}/classes", json={"name": "ClaseParaExportar"}, headers=auth_headers)
+    r = client.post(f"/diagrams/{diagram['id']}/export-download", headers=auth_headers)
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/zip"
 
 
-def test_cn_exp_002_export_diagrama_inexistente(client):
-    r = client.post("/diagrams/00000000-0000-0000-0000-000000000000/export-download")
+def test_cn_exp_002_export_diagrama_inexistente(client, auth_headers):
+    r = client.post("/diagrams/00000000-0000-0000-0000-000000000000/export-download", headers=auth_headers)
     assert r.status_code == 404

@@ -24,20 +24,31 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-from google import genai
+from google import genai  # noqa: F401  (los tests reemplazan genai.Client)
 
 from app.core.config import settings
 from app.models.uml import Diagram
-from app.services.ai_tools import DiagramToolExecutor, ToolError, TOOLS
+from app.services import llm_providers
+from app.services import ai_proposals
+from app.services.ai_tools import CONFIRM_RE, DiagramToolExecutor, ToolError, TOOLS, as_gemini_tools
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-3.5-flash-lite"
+MODEL = llm_providers.DEFAULT_GEMINI_MODEL
 MAX_TOOL_TURNS = 6  # tope de vueltas del loop para evitar bucles infinitos
 # Con la entrega de soluciones activada una respuesta puede crear varias
 # clases, atributos y relaciones encadenados: se permiten mas vueltas.
 MAX_TOOL_TURNS_SOLUTIONS = 15
-REQUEST_TIMEOUT = 45.0  # segundos por llamada; evita que cuelgue indefinidamente
+
+INSIST_ON_TOOLS = (
+    "No ejecutaste ninguna herramienta, asi que el diagrama NO cambio. Si el "
+    "pedido requiere crear, modificar o eliminar algo, llama ahora a las "
+    "herramientas necesarias. No confirmes cambios que no ejecutaste."
+)
+NO_CHANGES_REPLY = (
+    "No apliqué ningún cambio en el diagrama: no logré ejecutar ese pedido. "
+    "¿Podés repetirlo o reformularlo?"
+)
 
 MODE_AUTO = "AUTO"      # el modelo decide: explicar, editar o ambas
 MODE_MENTOR = "MENTOR"  # consulta teorica: sin herramientas, no toca el diagrama
@@ -89,12 +100,37 @@ _DOUBT_RE = re.compile(
 )
 
 
+def is_edit_request(text: str) -> bool:
+    """¿El texto pide un cambio en el diagrama?
+
+    Un verbo de edicion en INFINITIVO dentro de una pregunta teorica no es un
+    pedido: "¿En qué contexto se recomienda crear una base de datos no
+    relacional?" o "¿cuándo conviene agregar un atributo derivado?" preguntan
+    por un concepto. Antes cualquier "crear" mandaba la consulta al modo de
+    edicion, el modelo respondia la teoria sin usar herramientas, y la
+    salvaguarda contra cambios inventados reemplazaba esa explicacion por
+    "No apliqué ningún cambio en el diagrama...". Las ordenes ("creá",
+    "agregale", "¿podés crear...?", que no empieza como pregunta teorica)
+    siguen siendo pedidos de edicion."""
+    matches = [m.group(0).lower() for m in _EDIT_RE.finditer(text)]
+    if not matches:
+        return False
+    if _THEORY_RE.search(text) and "?" in text:
+        return any(not m.endswith("r") and m not in _ENGLISH_EDIT_VERBS for m in matches)
+    return True
+
+
+# Verbos de edicion en ingles: en una pregunta ("how to create...") son la
+# forma base, igual que un infinitivo.
+_ENGLISH_EDIT_VERBS = {"create", "add", "delete", "remove", "rename"}
+
+
 def classify_intent(text: str) -> str:
     """MODE_MENTOR si la consulta es claramente teorica, MODE_AUTO si no.
 
     Teorica = empieza como pregunta/pedido de explicacion, o es una pregunta
-    (lleva "?"), y en ningun caso contiene un verbo de edicion."""
-    if _EDIT_RE.search(text):
+    (lleva "?"), y no pide un cambio (ver is_edit_request)."""
+    if is_edit_request(text):
         return MODE_AUTO
     if _THEORY_RE.search(text) or _DOUBT_RE.search(text) or "?" in text:
         return MODE_MENTOR
@@ -127,7 +163,10 @@ ROL 2 - EJECUTOR DE EDICIONES DEL DIAGRAMA
 Cuando te piden un cambio concreto, lo ejecutas llamando a las herramientas.
 1. Ejecuta SIEMPRE lo que el usuario pide, usando las herramientas. Si el \
    pedido nombra los elementos concretos, hacelo sin pedir confirmacion ni \
-   pedir que te lo repitan paso a paso.
+   pedir que te lo repitan paso a paso. UNICA excepcion: si una herramienta \
+   responde CONFIRMACION REQUERIDA (borrar una clase con contenido o varias \
+   cosas a la vez), no reintentes: explica en una linea que se perderia y \
+   pedile que confirme con "@IA confirmo, ...".
 2. Un solo mensaje puede implicar VARIAS herramientas, y esta perfecto \
    encadenarlas. Ejemplos que SI debes ejecutar completos:
    - "crea la clase Usuario y agregale nombre, ci, contrasena y correo" \
@@ -218,6 +257,39 @@ class AiCommandResult:
     reply: str
     actions: list[dict] = field(default_factory=list)
     mode: str = "AUTO"  # MODE_MENTOR si se respondio como mentor, sin herramientas
+    model_label: str | None = None  # que modelo respondio (CU-17)
+    # Propuesta del asesor (segundo parcial): {"summary", "operations",
+    # "base_hash"} ya validada contra el diagrama; NO se aplico.
+    proposal: dict | None = None
+    revision: str | None = None  # revision del diagrama con la que se respondio
+
+
+# Presupuesto de contexto: un diagrama mas grande que esto se manda en forma
+# compacta (nombres y tipos, sin coordenadas) para no exceder el contexto.
+MAX_STATE_CHARS = 30000
+
+
+def compact_state(snapshot: dict) -> tuple[str, bool]:
+    """JSON del diagrama para el prompt y si hubo que compactarlo."""
+    full = json.dumps(snapshot, ensure_ascii=False)
+    if len(full) <= MAX_STATE_CHARS:
+        return full, False
+    compact = {
+        "clases": [
+            {"nombre": c["nombre"],
+             "atributos": [f"{a['nombre']}: {a['tipo']}" for a in c["atributos"]],
+             "metodos": [m["nombre"] for m in c["metodos"]]}
+            for c in snapshot["clases"]
+        ],
+        "relaciones": [
+            f"{r['origen']} {r.get('mult_origen', '')} -[{r['tipo']}]-> {r['destino']} {r.get('mult_destino', '')}"
+            for r in snapshot["relaciones"]
+        ],
+    }
+    text = json.dumps(compact, ensure_ascii=False)
+    if len(text) > MAX_STATE_CHARS:
+        text = text[:MAX_STATE_CHARS] + " ...(truncado)"
+    return text, True
 
 
 def _describe(actions: list[dict]) -> str:
@@ -253,7 +325,7 @@ class TeamMessage:
 def build_prompt(state_json: str, user_text: str, requester: Requester | None = None,
                  history: list[tuple[str, str]] | None = None,
                  team_context: list[TeamMessage] | None = None,
-                 mode: str = "auto") -> str:
+                 mode: str = "auto", proposals: bool = False, compacted: bool = False) -> str:
     """Arma el mensaje para el modelo con la memoria hibrida: quien pregunta,
     su hilo individual con la IA, la conversacion reciente del equipo y el
     estado actual del diagrama."""
@@ -263,6 +335,8 @@ def build_prompt(state_json: str, user_text: str, requester: Requester | None = 
         partes.append(f"Usuario que te consulta: {requester.name}{contacto}")
 
     partes.append(f"[Contexto global] Estado actual del diagrama (JSON):\n{state_json}")
+    if compacted:
+        partes.append("(El diagrama es grande: se envio en forma compacta, sin coordenadas.)")
 
     if team_context:
         lineas = ["[Contexto global] Conversacion reciente del equipo en el chat (de la mas vieja a la mas nueva):"]
@@ -283,6 +357,14 @@ def build_prompt(state_json: str, user_text: str, requester: Requester | None = 
 
     if mode == MODE_MENTOR:
         partes.append(
+            "Esta consulta es teorica/conceptual o de revision: responde como mentor "
+            "y desarrollador senior, sin modificar el diagrama. Explica tu diagnostico "
+            "y recomendacion en texto. Si recomendas crear o cambiar algo concreto sobre "
+            "clases REALES del diagrama (una relacion, una multiplicidad, un atributo "
+            "faltante), SIEMPRE registralo ademas con la herramienta propose_changes: "
+            "queda como PROPUESTA que el equipo acepta o rechaza con un boton. Nunca "
+            "digas que aplicaste un cambio: como mucho, que lo dejaste propuesto."
+            if proposals else
             "Esta consulta es teorica/conceptual: responde como mentor, sin "
             "modificar el diagrama (en este turno no tenes herramientas)."
         )
@@ -294,89 +376,201 @@ def build_prompt(state_json: str, user_text: str, requester: Requester | None = 
 def run_command(db, diagram: Diagram, user_text: str, requester: Requester | None = None,
                 history: list[tuple[str, str]] | None = None,
                 team_context: list[TeamMessage] | None = None,
-                mode: str | None = None, solutions_enabled: bool = False) -> AiCommandResult:
+                mode: str | None = None, solutions_enabled: bool = False,
+                provider: llm_providers.ProviderConfig | None = None,
+                proposals_enabled: bool = False) -> AiCommandResult:
     """Responde una consulta. `mode`:
       - MODE_MENTOR: pregunta teorica -> se llama al modelo SIN herramientas,
         asi es imposible que modifique el diagrama.
       - MODE_AUTO: el modelo decide (explicar, editar, o ambas).
-    Si no se indica, se clasifica con classify_intent()."""
+    Si no se indica, se clasifica con classify_intent().
+
+    `provider`: que modelo responde (Gemini, o uno local/OpenAI-compatible,
+    ver llm_providers.py). Por defecto, el configurado para el diagrama."""
     mode = mode or classify_intent(user_text)
-    if not settings.GEMINI_API_KEY:
-        raise RuntimeError(
-            "GEMINI_API_KEY no esta configurada en el backend (.env)."
-        )
+    cfg = provider or llm_providers.config_for(diagram)
+    if cfg.kind == llm_providers.PROVIDER_TRAINED:
+        from app.services import trained_model
+        return trained_model.run(db, diagram, user_text, requester, history, team_context, mode,
+                                 solutions_enabled, proposals_enabled, cfg.label)
+    result = _run(db, diagram, user_text, requester, history, team_context, mode, solutions_enabled, cfg,
+                  proposals_enabled=proposals_enabled)
+    result.model_label = cfg.label
+    return result
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
-    executor = DiagramToolExecutor(db, diagram)
 
-    state = json.dumps(executor.snapshot(), ensure_ascii=False)
+# El asesor dice que dejo una propuesta (sin haberla registrado).
+_CLAIMS_PROPOSAL_RE = re.compile(
+    r"(registr|dej)\w*\s+(\w+\s+){0,4}propuest|propuest\w*\s+(registrad|en el (tablero|panel|chat))",
+    re.IGNORECASE,
+)
+INSIST_ON_PROPOSAL = (
+    "Dijiste que dejaste una propuesta pero NO llamaste a propose_changes, asi que no "
+    "quedo nada registrado. Si recomendas cambios concretos, llama ahora a "
+    "propose_changes con las operaciones; si no, responde sin decir que quedo propuesta. "
+    "El usuario no ve este aviso: no pidas disculpas ni lo menciones, responde a su pregunta."
+)
+NO_PROPOSAL_NOTE = ("\n\n_(Aclaración: esta vez no quedó registrada una propuesta aplicable. "
+                    "Si querés que la deje propuesta, pedímelo de nuevo.)_")
+
+
+def _advisor_reply(session, turn, snapshot: dict, _insisted: bool = False) -> tuple[str, dict | None]:
+    """Turno del asesor: si llama a propose_changes, la propuesta se valida
+    contra el diagrama (sin ejecutar nada). Si es invalida se le devuelven
+    los errores UNA vez para que la corrija; si sigue invalida, se descarta
+    (la respuesta en texto se publica igual)."""
+    proposal = None
+    first_text = (turn.text or "").strip()
+    text = first_text
+    for _ in range(2):
+        if not turn.calls:
+            break
+        results = []
+        for call in turn.calls:
+            if call.name != "propose_changes" or proposal is not None:
+                results.append((call, json.dumps({"error": "En este turno solo podes proponer (una vez)."})))
+                continue
+            ops, errors, touched = ai_proposals.validate_operations(snapshot, call.arguments.get("operations"))
+            summary = str(call.arguments.get("summary") or "").strip()
+            if errors or not summary:
+                results.append((call, json.dumps(
+                    {"error": "Propuesta invalida, corregila", "detalles": errors or ["Falta el resumen."]},
+                    ensure_ascii=False)))
+                continue
+            proposal = {"summary": summary[:1000], "operations": ops,
+                        "base_hash": ai_proposals.touched_hash(snapshot, touched)}
+            results.append((call, json.dumps(
+                {"ok": True, "registrada": True,
+                 "nota": ("Quedo como propuesta pendiente; NO se aplico. Ahora responde en texto, "
+                          "dirigiendote a quien pregunto: tu diagnostico del diagrama actual (que "
+                          "falta o que esta mal, con las clases reales), la recomendacion y POR QUE "
+                          "(multiplicidades, integridad), en 3 a 8 lineas, y aclara que quedo como "
+                          "propuesta para que el equipo la revise y la acepte o rechace.")},
+                ensure_ascii=False)))
+        try:
+            turn = session.send_tool_results(results)
+        except Exception as e:
+            logger.warning(f"[AI ADVISOR] corte tras proponer: {e}")
+            break
+        # La respuesta final ya trae la explicacion completa (se la pide la
+        # nota del resultado); el texto previo queda solo si no hay final.
+        text = (turn.text or "").strip() or text
+    if proposal is None and _CLAIMS_PROPOSAL_RE.search(text or ""):
+        if not _insisted:
+            try:
+                retry = session.insist_on_tools(INSIST_ON_PROPOSAL)
+            except Exception as e:
+                logger.warning(f"[AI ADVISOR] fallo al insistir con la propuesta: {e}")
+                retry = None
+            if retry is not None:
+                retry_text, proposal = _advisor_reply(session, retry, snapshot, _insisted=True)
+                if proposal is not None:
+                    return retry_text or text, proposal
+        # Nunca confirmar algo que no se hizo.
+        text = (text or "") + NO_PROPOSAL_NOTE
+    if proposal is not None and not text:
+        text = "Te dejé una propuesta de cambios para revisar."
+    if proposal is not None:
+        # Anclar la respuesta al modelo real: si el texto no nombra ninguna de
+        # las clases que toca la propuesta, se agrega el detalle de los cambios.
+        names = {str(v) for op in proposal["operations"] for k, v in op["args"].items()
+                 if k in ("class_name", "from_class", "to_class", "name", "new_name")}
+        if not any(n and n.lower() in (text or "").lower() for n in names):
+            cambios = "; ".join(ai_proposals.describe(op) for op in proposal["operations"])
+            text = f"{text}\n\n**Propuesta:** {cambios}."
+    return text, proposal
+
+
+def _run(db, diagram, user_text, requester, history, team_context, mode, solutions_enabled,
+         cfg: llm_providers.ProviderConfig, proposals_enabled: bool = False) -> AiCommandResult:
+    session = llm_providers.open_session(cfg)  # valida la config antes de hacer nada
+    # Eliminaciones con impacto (clase con contenido, varias a la vez) solo si
+    # el usuario confirmo explicitamente en este mensaje (ver ai_tools).
+    executor = DiagramToolExecutor(db, diagram, destructive_confirmed=bool(CONFIRM_RE.search(user_text)),
+                                   actor_email=requester.email if requester else None)
+
+    snapshot = executor.snapshot()
+    revision = ai_proposals.diagram_revision(snapshot)
+    state, compacted = compact_state(snapshot)
     sys_prompt = system_prompt(solutions_enabled)
+    advisor_tools = mode == MODE_MENTOR and proposals_enabled
     prompt = build_prompt(state, user_text, requester=requester, history=history,
-                          team_context=team_context, mode=mode)
+                          team_context=team_context, mode=mode,
+                          proposals=advisor_tools, compacted=compacted)
 
     actions: list[dict] = []
 
-    def _ask(**kwargs):
-        """Llama al modelo. Si se corta la comunicacion a mitad de un comando,
-        las ediciones ya aplicadas siguen siendo validas (estan commiteadas y
-        ya se emitieron por WebSocket), asi que no se pierden: se devuelven
-        como resultado parcial en vez de propagar el error."""
-        return client.interactions.create(timeout=REQUEST_TIMEOUT, **kwargs)
-
-    try:
-        first_call = dict(model=MODEL, input=prompt, system_instruction=sys_prompt)
-        if mode != MODE_MENTOR:
-            first_call["tools"] = TOOLS
-        interaction = _ask(**first_call)
-    except Exception:
-        raise  # nada ejecutado todavia: que el router lo traduzca a un error claro
+    # Primera llamada: si falla, no se ejecuto nada todavia y el error se
+    # propaga para que el chat lo muestre. El asesor (MENTOR) solo recibe la
+    # herramienta de PROPONER: no tiene ninguna que modifique el diagrama.
+    if mode == MODE_MENTOR:
+        tools = as_gemini_tools([ai_proposals.PROPOSE_TOOL]) if advisor_tools else None
+    else:
+        tools = TOOLS
+    turn = session.start(sys_prompt, prompt, tools=tools)
 
     if mode == MODE_MENTOR:
+        reply, proposal = _advisor_reply(session, turn, snapshot)
         return AiCommandResult(
-            reply=interaction.output_text
-            or "No pude armar una explicación para eso. ¿Podés reformular la pregunta?",
-            actions=[], mode=MODE_MENTOR,
+            reply=reply or "No pude armar una explicación para eso. ¿Podés reformular la pregunta?",
+            actions=[], mode=MODE_MENTOR, proposal=proposal, revision=revision,
         )
 
-    for _ in range(MAX_TOOL_TURNS_SOLUTIONS if solutions_enabled else MAX_TOOL_TURNS):
-        call_steps = [s for s in interaction.steps if s.type == "function_call"]
-        if not call_steps:
-            return AiCommandResult(reply=interaction.output_text or "Listo.", actions=actions, mode=MODE_AUTO)
-
-        function_results = []
-        for step in call_steps:
-            logger.info(f"[AI TOOL] {step.name} -> {step.arguments}")
+    # Salvaguarda contra respuestas inventadas: si el pedido trae un verbo de
+    # edicion y el modelo contesta SIN usar herramientas, suele "confirmar"
+    # cambios que nunca hizo (observado con Gemini via la capa OpenAI-
+    # compatible, y es comun en modelos locales chicos). Se le avisa una vez
+    # y se le pide que las use. Si igual no lo hace, se reintenta UNA vez en
+    # una sesion limpia (en la misma conversacion el modelo queda "anclado" a
+    # su respuesta anterior: se observo que contestaba "tenes razon, ahi
+    # ejecuto las herramientas" sin ejecutar nada). Si tampoco, NO se publica
+    # su texto -- responde al aviso interno, que el usuario nunca vio, y
+    # suele prometer cambios -- sino un mensaje honesto.
+    if not turn.calls and is_edit_request(user_text):
+        logger.info("[AI COMMAND] pedido de edicion sin tool calls: se insiste una vez")
+        try:
+            turn = session.insist_on_tools(INSIST_ON_TOOLS)
+        except Exception as e:
+            logger.warning(f"[AI COMMAND] fallo al insistir con herramientas: {e}")
+            turn = llm_providers.Turn(text="")
+        if not turn.calls:
+            logger.info("[AI COMMAND] sigue sin tool calls: reintento en sesion limpia")
             try:
-                fn = getattr(executor, step.name)
-                result = fn(**step.arguments)
-                actions.append({"tool": step.name, "input": step.arguments, "result": result})
+                session = llm_providers.open_session(cfg)
+                turn = session.start(sys_prompt, prompt, tools=TOOLS)
+            except Exception as e:
+                logger.warning(f"[AI COMMAND] fallo el reintento: {e}")
+                turn = llm_providers.Turn(text="")
+        if not turn.calls:
+            turn = llm_providers.Turn(text=NO_CHANGES_REPLY)
+
+    for _ in range(MAX_TOOL_TURNS_SOLUTIONS if solutions_enabled else MAX_TOOL_TURNS):
+        if not turn.calls:
+            return AiCommandResult(reply=turn.text or "Listo.", actions=actions, mode=MODE_AUTO)
+
+        results = []
+        for call in turn.calls:
+            logger.info(f"[AI TOOL] {call.name} -> {call.arguments}")
+            try:
+                fn = getattr(executor, call.name, None)
+                if fn is None or call.name.startswith("_"):
+                    raise ToolError(f"La herramienta '{call.name}' no existe.")
+                result = fn(**call.arguments)
+                actions.append({"tool": call.name, "input": call.arguments, "result": result})
                 payload = json.dumps(result, ensure_ascii=False)
             except ToolError as e:
                 payload = json.dumps({"error": str(e)}, ensure_ascii=False)
             except Exception as e:
-                logger.error(f"[AI TOOL] error ejecutando {step.name}: {e}")
+                logger.error(f"[AI TOOL] error ejecutando {call.name}: {e}")
                 payload = json.dumps({"error": f"Error interno: {e}"}, ensure_ascii=False)
-
-            function_results.append({
-                "type": "function_result",
-                "name": step.name,
-                "call_id": step.id,
-                "result": [{"type": "text", "text": payload}],
-            })
+            results.append((call, payload))
 
         try:
-            # system_instruction se reenvia en cada vuelta: sin esto la
-            # respuesta final (tras ejecutar herramientas) ignoraba las
-            # reglas de formato y extension del prompt.
-            interaction = _ask(
-                model=MODEL,
-                input=function_results,
-                system_instruction=sys_prompt,
-                tools=TOOLS,
-                previous_interaction_id=interaction.id,
-            )
+            turn = session.send_tool_results(results)
         except Exception as e:
-            # Se corto la comunicacion, pero lo ejecutado ya esta aplicado.
+            # Las ediciones ya aplicadas siguen siendo validas (estan
+            # commiteadas y emitidas por WebSocket): se informan como
+            # resultado parcial en vez de propagar el error.
             logger.warning(f"[AI COMMAND] corte tras ejecutar {len(actions)} accion(es): {e}")
             hecho = _describe(actions)
             return AiCommandResult(
@@ -430,7 +624,7 @@ _ERROR_MESSAGES: dict[str, str] = {
 
 
 def describe_error(e: Exception) -> str:
-    if isinstance(e, RuntimeError):
+    if isinstance(e, RuntimeError):  # incluye llm_providers.ProviderError
         return str(e)
     return _ERROR_MESSAGES.get(
         type(e).__name__.lower(),

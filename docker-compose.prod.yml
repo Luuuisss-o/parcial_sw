@@ -29,7 +29,20 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       SEED_DEMO: ${SEED_DEMO:-false}
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://parcial-sw.duckdns.org}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://${DOMAIN}}
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      MODELS_DIR: /app/data/models
+      # Modelo propio del equipo (Gemma 3 1B ajustado) en el servidor del
+      # modelo (deploy/model_server). Vacio = no disponible como proveedor.
+      LOCAL_MODEL_URL: ${LOCAL_MODEL_URL:-}
+      LOCAL_MODEL_API_KEY: ${LOCAL_MODEL_API_KEY:-}
+      LOCAL_MODEL_CERT: ${LOCAL_MODEL_CERT:-}
+      MODEL_SYNC_TOKEN: ${MODEL_SYNC_TOKEN:-}
+    volumes:
+      - assistant_models:/app/data/models
 
   frontend:
     build:
@@ -41,11 +54,15 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+    environment:
+      DOMAIN: ${DOMAIN:?Definí DOMAIN en .env (ej. mi-uml.duckdns.org)}
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
 
 volumes:
+  assistant_models:
   pgdata:

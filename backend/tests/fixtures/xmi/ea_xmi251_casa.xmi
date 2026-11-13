@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="windows-1252"?>
+<!--
+  Modelo "Casa" en el formato XMI 2.5.1 de Enterprise Architect 16/17
+  (espacios de nombres XMI 20131001 y UML 20161101). ESCRITO A MANO
+  siguiendo ese formato, no exportado por EA. Antes el importador solo
+  aceptaba el espacio de nombres de XMI 2.1 y con este archivo respondía
+  "No se encontró ninguna uml:Class".
+-->
+<xmi:XMI xmlns:uml="http://www.omg.org/spec/UML/20161101" xmlns:xmi="http://www.omg.org/spec/XMI/20131001">
+	<xmi:Documentation exporter="Enterprise Architect" exporterVersion="6.5"/>
+	<uml:Model xmi:type="uml:Model" name="EA_Model">
+		<packagedElement xmi:type="uml:Package" xmi:id="EAPK_DIAGRAMA" name="Diagrama importado">
+			<packagedElement xmi:type="uml:Class" xmi:id="EAID_CASA" name="Casa">
+				<ownedAttribute xmi:type="uml:Property" xmi:id="EAID_A_AREA" name="AreaCuadrada" visibility="public">
+					<type xmi:idref="EAJava_Number"/>
+				</ownedAttribute>
+				<ownedOperation xmi:id="EAID_O_VENDER" name="Vender" visibility="public"/>
+			</packagedElement>
+			<packagedElement xmi:type="uml:Class" xmi:id="EAID_PUERTA" name="Puerta">
+				<ownedAttribute xmi:type="uml:Property" xmi:id="EAID_A_MADERA" name="EsDeMadera" visibility="public">
+					<type xmi:type="uml:PrimitiveType" href="http://www.omg.org/spec/UML/20161101/PrimitiveTypes.xmi#Boolean"/>
+				</ownedAttribute>
+			</packagedElement>
+			<packagedElement xmi:type="uml:Class" xmi:id="EAID_VENTANA" name="Ventana">
+				<ownedAttribute xmi:type="uml:Property" xmi:id="EAID_A_MARCO" name="Marco" visibility="public">
+					<type xmi:type="uml:PrimitiveType" href="http://www.omg.org/spec/UML/20161101/PrimitiveTypes.xmi#String"/>
+				</ownedAttribute>
+			</packagedElement>
+			<packagedElement xmi:type="uml:Association" xmi:id="EAID_AS_PUERTA_CASA">
+				<memberEnd xmi:idref="EAID_dst_PC"/>
+				<memberEnd xmi:idref="EAID_src_PC"/>
+				<ownedEnd xmi:type="uml:Property" xmi:id="EAID_src_PC" association="EAID_AS_PUERTA_CASA" aggregation="composite">
+					<type xmi:idref="EAID_PUERTA"/>
+					<lowerValue xmi:type="uml:LiteralInteger" xmi:id="EAID_LI1" value="1"/>
+					<upperValue xmi:type="uml:LiteralUnlimitedNatural" xmi:id="EAID_LI2" value="1"/>
+				</ownedEnd>
+				<ownedEnd xmi:type="uml:Property" xmi:id="EAID_dst_PC" association="EAID_AS_PUERTA_CASA" aggregation="none">
+					<type xmi:idref="EAID_CASA"/>
+					<lowerValue xmi:type="uml:LiteralInteger" xmi:id="EAID_LI3" value="1"/>
+					<upperValue xmi:type="uml:LiteralUnlimitedNatural" xmi:id="EAID_LI4" value="1"/>
+				</ownedEnd>
+			</packagedElement>
+			<packagedElement xmi:type="uml:Association" xmi:id="EAID_AS_VENTANA_CASA">
+				<memberEnd xmi:idref="EAID_dst_VC"/>
+				<memberEnd xmi:idref="EAID_src_VC"/>
+				<ownedEnd xmi:type="uml:Property" xmi:id="EAID_src_VC" association="EAID_AS_VENTANA_CASA" aggregation="composite">
+					<type xmi:idref="EAID_VENTANA"/>
+					<lowerValue xmi:type="uml:LiteralInteger" xmi:id="EAID_LI5" value="1"/>
+					<upperValue xmi:type="uml:LiteralUnlimitedNatural" xmi:id="EAID_LI6" value="-1"/>
+				</ownedEnd>
+				<ownedEnd xmi:type="uml:Property" xmi:id="EAID_dst_VC" association="EAID_AS_VENTANA_CASA" aggregation="none">
+					<type xmi:idref="EAID_CASA"/>
+					<lowerValue xmi:type="uml:LiteralInteger" xmi:id="EAID_LI7" value="1"/>
+					<upperValue xmi:type="uml:LiteralUnlimitedNatural" xmi:id="EAID_LI8" value="1"/>
+				</ownedEnd>
+			</packagedElement>
+		</packagedElement>
+	</uml:Model>
+	<xmi:Extension extender="Enterprise Architect" extenderID="6.5">
+		<elements>
+			<element xmi:idref="EAID_CASA" xmi:type="uml:Class" name="Casa" scope="public">
+				<attributes>
+					<attribute xmi:idref="EAID_A_AREA" name="AreaCuadrada" scope="Public">
+						<properties type="Number" derived="0" collection="false" static="0"/>
+					</attribute>
+				</attributes>
+			</element>
+		</elements>
+	</xmi:Extension>
+</xmi:XMI>

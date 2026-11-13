@@ -13,12 +13,17 @@ export default function useDiagram(diagramId) {
   // 🔹 Estado para manejar mensajes de error
   const [err, setErr] = useState("");
 
+  // 🔹 Cambia para volver a pedir el diagrama (p. ej. cambió mi rol)
+  const [reloadKey, setReloadKey] = useState(0);
+  const reload = () => setReloadKey((k) => k + 1);
+
   // 🔹 Efecto: se ejecuta cuando cambia el `diagramId`
   useEffect(() => {
     let alive = true; // bandera para evitar actualizar estado si el componente ya se desmontó
 
     (async () => {
-      setLoading(true);   // activa indicador de carga
+      // Al recargar no se muestra el "cargando" de pantalla completa.
+      if (reloadKey === 0) setLoading(true);
       setErr("");         // limpia errores previos
 
       try {
@@ -41,8 +46,8 @@ export default function useDiagram(diagramId) {
 
     // 🔹 Cleanup: cuando el componente se desmonta, cambia `alive` a false
     return () => { alive = false; };
-  }, [diagramId]); // depende del ID → si cambia, vuelve a cargar el diagrama
+  }, [diagramId, reloadKey]); // si cambia el ID (o se pide recargar), vuelve a cargarlo
 
   // 🔹 Devuelve los valores útiles para el componente que use este hook
-  return { diagram, loading, err };
+  return { diagram, loading, err, reload };
 }

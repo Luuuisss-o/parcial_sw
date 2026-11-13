@@ -92,6 +92,7 @@ export function getAnchorsForRelation(type, fromId, toId, srcA = "right", dstA =
       };
 
     case "DEPENDENCY":
+    case "REALIZATION":
       // Línea punteada con flecha al destino
       return {
         a: getAnchorForClassSide(fromId, srcA),

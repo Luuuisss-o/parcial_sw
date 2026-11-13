@@ -3,7 +3,7 @@ uap_generator.py
 Genera el protocolo UAP (Universal Assistant Protocol) para el backend
 Spring Boot exportado: un conjunto de endpoints que exponen, de forma
 descubrible en runtime, las mismas entidades que ya generan
-json_to_full_orm/model_to_dto/service_to_controller -- sin inventar ningun
+json_to_full_orm/api_layer -- sin inventar ningun
 dominio nuevo. Un cliente generico (el asistente de IA local del movil)
 puede leer /uap/v1/manifest y /uap/v1/tools de CUALQUIER backend generado
 por el diagramador y saber que operaciones puede ofrecer, sin que se le

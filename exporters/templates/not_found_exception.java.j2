@@ -1,0 +1,8 @@
+package com.test.exceptions;
+
+/** El recurso pedido no existe: se responde 404 (ver ApiExceptionHandler). */
+public class NotFoundException extends RuntimeException {
+    public NotFoundException(String message) {
+        super(message);
+    }
+}

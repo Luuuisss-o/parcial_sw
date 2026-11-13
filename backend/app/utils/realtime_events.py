@@ -28,17 +28,26 @@ def fire(coro):
             logger.warning("No se pudo emitir evento realtime: loop principal no capturado aun")
             coro.close()
             return
-        asyncio.run_coroutine_threadsafe(coro, loop)
+        try:
+            asyncio.run_coroutine_threadsafe(coro, loop)
+        except RuntimeError as e:
+            # Loop cerrado (la app se esta apagando o reiniciando): la
+            # notificacion es de mejor esfuerzo y no puede tirar abajo la
+            # tarea que la dispara (una consulta a la IA quedaria "en curso"
+            # para siempre).
+            logger.warning(f"No se pudo emitir evento realtime: {e}")
+            coro.close()
 
 
 # =========================
 # Asistente de IA
 # =========================
 async def notify_ai_started(diagram_id: UUID, text: str, request_id: str | None = None,
-                            requested_by: dict | None = None):
+                            requested_by: dict | None = None, on_device: bool = False):
     await ws_manager.broadcast(str(diagram_id), {
         "event": "ai.started",
-        "data": {"text": text, "request_id": request_id, "requested_by": requested_by},
+        "data": {"text": text, "request_id": request_id, "requested_by": requested_by,
+                 "on_device": on_device},
     })
 
 
@@ -59,6 +68,11 @@ async def notify_ai_error(diagram_id: UUID, detail: str, request_id: str | None 
         "event": "ai.error",
         "data": {"detail": detail, "request_id": request_id, "requested_by": requested_by},
     })
+
+
+async def notify_ai_proposal(diagram_id: UUID, proposal: dict):
+    """Una propuesta del asesor cambio de estado (aplicada, rechazada, ...)."""
+    await ws_manager.broadcast(str(diagram_id), {"event": "ai.proposal", "data": proposal})
 
 
 async def notify_ai_settings(diagram_id: UUID, settings: dict):
@@ -83,6 +97,7 @@ async def notify_class_created(diagram_id: UUID, clase: Clase):
         "data": {
             "id": str(clase.id),
             "nombre": clase.nombre,
+            "kind": clase.tipo_clase,
             "x_grid": clase.x_grid,
             "y_grid": clase.y_grid,
             "w_grid": clase.w_grid,
@@ -100,6 +115,7 @@ async def notify_class_updated(diagram_id: UUID, clase: Clase):
         "data": {
             "id": str(clase.id),
             "nombre": clase.nombre,
+            "kind": clase.tipo_clase,
             "x_grid": clase.x_grid,
             "y_grid": clase.y_grid,
             "w_grid": clase.w_grid,
@@ -109,6 +125,16 @@ async def notify_class_updated(diagram_id: UUID, clase: Clase):
     }
     print("Evento emitido (Clase Actualizada):", payload)
     await ws_manager.broadcast(str(diagram_id), payload)
+
+
+async def notify_collaborators_changed(diagram_id: UUID, email: str, role: str | None):
+    """Cambió el acceso de un colaborador (invitado, cambio de rol o quitado:
+    role=None). Su editor abierto recarga el diagrama para pasar a solo
+    lectura, volver a edición o salir, sin tener que recargar la página."""
+    await ws_manager.broadcast(str(diagram_id), {
+        "event": "collaborators.changed",
+        "data": {"email": email, "role": role},
+    })
 
 
 async def notify_class_deleted(diagram_id: UUID, class_id: UUID):
@@ -131,6 +157,11 @@ async def notify_attribute_created(diagram_id: UUID, atributo: Atributo):
             "nombre": atributo.nombre,
             "tipo": atributo.tipo,
             "requerido": atributo.requerido,
+            "visibility": atributo.visibilidad,
+            "is_static": atributo.es_estatico,
+            "is_derived": atributo.es_derivado,
+            "multiplicity": atributo.multiplicidad,
+            "default_value": atributo.valor_inicial,
             "clase_id": str(atributo.clase_id),
         },
     }
@@ -146,6 +177,11 @@ async def notify_attribute_updated(diagram_id: UUID, atributo: Atributo):
             "nombre": atributo.nombre,
             "tipo": atributo.tipo,
             "requerido": atributo.requerido,
+            "visibility": atributo.visibilidad,
+            "is_static": atributo.es_estatico,
+            "is_derived": atributo.es_derivado,
+            "multiplicity": atributo.multiplicidad,
+            "default_value": atributo.valor_inicial,
             "clase_id": str(atributo.clase_id),
         },
     }
@@ -174,6 +210,10 @@ async def notify_method_created(diagram_id: UUID, metodo: Metodo):
             "id": str(metodo.id),
             "nombre": metodo.nombre,
             "tipo_retorno": metodo.tipo_retorno,
+            "visibility": metodo.visibilidad,
+            "is_static": metodo.es_estatico,
+            "is_abstract": metodo.es_abstracto,
+            "params": metodo.parametros,
             "clase_id": str(metodo.clase_id),
         },
     }
@@ -188,6 +228,10 @@ async def notify_method_updated(diagram_id: UUID, metodo: Metodo):
             "id": str(metodo.id),
             "nombre": metodo.nombre,
             "tipo_retorno": metodo.tipo_retorno,
+            "visibility": metodo.visibilidad,
+            "is_static": metodo.es_estatico,
+            "is_abstract": metodo.es_abstracto,
+            "params": metodo.parametros,
             "clase_id": str(metodo.clase_id),
         },
     }
@@ -229,6 +273,10 @@ async def notify_relation_created(diagram_id: UUID, relation: RelacionOut):
             "dst_mult_min": relation.dst_mult_min,
             "dst_mult_max": relation.dst_mult_max,
             "es_clase_asociacion": relation.es_clase_asociacion,
+            "src_role": relation.src_role,
+            "dst_role": relation.dst_role,
+            "src_navigable": relation.src_navigable,
+            "dst_navigable": relation.dst_navigable,
             "origen_nombre": relation.origen_nombre,
             "destino_nombre": relation.destino_nombre,
         },
@@ -256,6 +304,10 @@ async def notify_relation_updated(diagram_id: UUID, relation: RelacionOut):
             "dst_mult_min": relation.dst_mult_min,
             "dst_mult_max": relation.dst_mult_max,
             "es_clase_asociacion": relation.es_clase_asociacion,
+            "src_role": relation.src_role,
+            "dst_role": relation.dst_role,
+            "src_navigable": relation.src_navigable,
+            "dst_navigable": relation.dst_navigable,
             "origen_nombre": relation.origen_nombre,
             "destino_nombre": relation.destino_nombre,
         },

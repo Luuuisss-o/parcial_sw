@@ -1,0 +1,132 @@
+# Preguntas de mentoría para destilar del modelo maestro (una por línea).
+# Las respuestas se generan con build_dataset.py --teacher y quedan en
+# data/teacher_mentor.jsonl (versionado, para que el dataset sea reproducible).
+¿Qué es un atributo derivado?
+No me acuerdo qué es un atributo derivado
+¿Qué es un requerimiento delegado?
+¿Qué diferencia hay entre agregación y composición?
+¿Cuándo conviene usar herencia y cuándo composición?
+¿Qué es una clase abstracta?
+¿Qué diferencia hay entre una clase abstracta y una interfaz?
+¿Qué es una clase de asociación en UML?
+¿Para qué sirve la multiplicidad en una relación?
+¿Qué significa la multiplicidad 0..* ?
+¿Qué significa la multiplicidad 1..1?
+¿Qué es una relación de dependencia?
+¿Cuándo una relación es una asociación y cuándo una dependencia?
+¿Qué es la navegabilidad de una asociación?
+¿Qué es una asociación reflexiva?
+¿Qué es la visibilidad de un atributo en UML?
+¿Qué significan los símbolos +, -, # y ~ en UML?
+¿Qué es un atributo estático en UML?
+¿Cómo se representa un método abstracto en UML?
+¿Qué es el polimorfismo?
+¿Qué es el encapsulamiento?
+¿Qué es la cohesión en diseño de software?
+¿Qué es el acoplamiento y por qué conviene que sea bajo?
+¿Qué dice el principio de responsabilidad única?
+¿Qué es el principio abierto/cerrado?
+¿Qué es el principio de sustitución de Liskov?
+¿Qué es el principio de segregación de interfaces?
+¿Qué es el principio de inversión de dependencias?
+¿Qué son los principios SOLID?
+¿Qué es el patrón Singleton y cuándo usarlo?
+¿Qué es el patrón Factory Method?
+¿Qué es el patrón Abstract Factory?
+¿Qué es el patrón Builder?
+¿Qué es el patrón Observer?
+¿Qué es el patrón Strategy?
+¿Qué es el patrón State?
+¿Qué es el patrón Decorator?
+¿Qué es el patrón Adapter?
+¿Qué es el patrón Facade?
+¿Qué es el patrón Composite?
+¿Qué es el patrón Repository?
+¿Qué es el patrón MVC?
+¿Qué es un DTO y para qué sirve?
+¿Qué diferencia hay entre una entidad y un DTO?
+¿Qué es una capa de servicio?
+¿Qué es una arquitectura en capas?
+¿Qué es un requerimiento funcional?
+¿Qué es un requerimiento no funcional?
+Dame ejemplos de requerimientos no funcionales
+¿Qué es un caso de uso?
+¿Qué es un actor en un diagrama de casos de uso?
+¿Qué diferencia hay entre include y extend en casos de uso?
+¿Qué es una historia de usuario?
+¿Qué es el Proceso Unificado (PUDS/RUP)?
+¿Cuáles son las fases del Proceso Unificado?
+¿Qué es un diagrama de secuencia?
+¿Qué es un diagrama de comunicación?
+¿Qué es un diagrama de estados?
+¿Qué es un diagrama de actividades?
+¿Qué es un diagrama de componentes?
+¿Qué es un diagrama de paquetes?
+¿Qué es un diagrama de despliegue?
+¿Qué diferencia hay entre el modelo de análisis y el modelo de diseño?
+¿Qué es una clase de análisis de tipo entidad, control e interfaz?
+¿Qué es la normalización de una base de datos?
+¿Cómo se traduce una relación muchos a muchos a tablas?
+¿Cómo se mapea la herencia a una base de datos relacional?
+¿Qué es una clave foránea?
+¿Qué es JPA?
+¿Qué hace la anotación @Entity?
+¿Qué diferencia hay entre @OneToMany y @ManyToOne?
+¿Qué es el lazy loading?
+¿Qué es una API REST?
+¿Qué verbos HTTP se usan en un CRUD?
+¿Qué es el acoplamiento temporal?
+¿Qué es un objeto valor (value object)?
+¿Qué es el diseño guiado por el dominio (DDD)?
+¿Qué es un agregado en DDD?
+¿Qué es la ley de Demeter?
+¿Qué es un code smell?
+¿Qué es la refactorización?
+¿Qué es una prueba unitaria?
+¿Qué es una prueba de integración?
+¿Qué es la trazabilidad de requerimientos?
+¿Qué es la herramienta CASE?
+¿Qué es XMI?
+¿Para qué sirve un diagrama de clases?
+¿Cómo identifico las clases a partir de un enunciado?
+¿Cómo sé si algo debería ser una clase o un atributo?
+¿Cuándo un atributo debería ser una clase aparte?
+¿Está bien que una clase tenga muchos atributos?
+¿Qué es una clase Dios (God class)?
+¿Qué es la generalización en UML?
+¿Qué es la especialización?
+¿Puede una clase heredar de dos clases en Java?
+¿Qué es una enumeración en UML?
+¿Cuándo uso una enumeración en vez de una clase?
+¿Qué es un estereotipo en UML?
+¿Qué es una restricción (constraint) en UML?
+¿Qué es OCL?
+¿Qué es un rol en una asociación?
+¿Qué es una asociación calificada?
+¿Qué es la cardinalidad?
+¿Qué diferencia hay entre cardinalidad y multiplicidad?
+¿Por qué Pedido no debería heredar de Cliente?
+¿Debería Empleado heredar de Persona?
+¿Qué es el principio de composición sobre herencia?
+¿Qué es una relación todo-parte?
+¿Qué es un método constructor?
+¿Qué es la sobrecarga de métodos?
+¿Qué es la sobrescritura de métodos?
+¿Qué es una excepción y cómo se modela?
+¿Qué es la inyección de dependencias?
+¿Qué es un microservicio?
+¿Qué es un monolito modular?
+¿Qué es la escalabilidad?
+¿Qué es la mantenibilidad?
+¿Qué es la usabilidad como requerimiento?
+¿Qué es la seguridad como requerimiento no funcional?
+Tengo una duda: ¿cómo modelo un historial de cambios?
+No entiendo la diferencia entre asociación y agregación
+No me acuerdo cómo se dibuja una composición
+¿Cómo se modela un usuario con varios roles?
+¿Cómo modelo una factura con sus detalles?
+¿Cómo modelo un pedido con productos y cantidades?
+¿Cómo modelo un turno médico entre paciente y doctor?
+¿Qué ventajas tiene trabajar en equipo sobre el mismo diagrama?
+¿Qué es un prototipo?
+¿Qué es la deuda técnica?

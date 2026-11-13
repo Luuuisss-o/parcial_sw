@@ -1,0 +1,5 @@
+# Generados en la EC2 del modelo: nunca se versionan
+.env
+certs/
+models/
+sync.log

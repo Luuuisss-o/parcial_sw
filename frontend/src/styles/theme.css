@@ -7,8 +7,11 @@
 
 :root {
   /* Lienzo (tema oscuro por defecto) */
-  --canvas-bg: #0d1117;
-  --canvas-grid: #1e2636;
+  --canvas-bg: #0d1a18;
+  --canvas-grid: #1b302c;
+  /* Líneas de relación: negras en el tema claro; en el oscuro, claras (el
+     negro no se vería sobre el lienzo). */
+  --relation-line: #e8efec;
 
   /* Alias heredados */
   --surface: var(--surface-1);
@@ -17,8 +20,9 @@
 }
 
 [data-theme="light"] {
-  --canvas-bg: #ffffff;
-  --canvas-grid: #e4e7ec;
+  --canvas-bg: #fffdf8;
+  --canvas-grid: #ece4d3;
+  --relation-line: #000000;
 }
 
 html,

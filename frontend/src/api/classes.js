@@ -3,7 +3,8 @@ import api from "./client";
 // ===== Helper para mapear nombre → name =====
 const mapClass = (c) => ({
   id: c.id,
-  name: c.nombre,
+  name: c.nombre ?? c.name,
+  kind: c.tipo_clase ?? c.kind ?? "class",
   x_grid: c.x_grid,
   y_grid: c.y_grid,
   w_grid: c.w_grid,
@@ -27,9 +28,9 @@ export const listClasses = async (diagramId) => {
 
 export const createClass = async (
   diagramId,
-  { name, x_grid, y_grid, w_grid, h_grid, z_index } = {}
+  { name, kind, x_grid, y_grid, w_grid, h_grid, z_index } = {}
 ) => {
-  const body = { name, x_grid, y_grid, w_grid, h_grid, z_index };
+  const body = { name, kind, x_grid, y_grid, w_grid, h_grid, z_index };
   console.log("📤 [createClass] POST body:", body);
   try {
     const r = await api.post(`/diagrams/${diagramId}/classes`, body);
@@ -90,8 +91,10 @@ export const listAttributes = async (classId) => {
   }
 };
 
-export const createAttribute = async (classId, { name, type, required = false }) => {
-  const body = { name, type, required };
+// Notación UML 2.5 opcional: visibility, is_static, is_derived,
+// multiplicity, default_value (si no vienen, el backend usa sus defaults).
+export const createAttribute = async (classId, { name, type, required = false, ...notation }) => {
+  const body = { name, type, required, ...notation };
   console.log("📤 [createAttribute] POST body:", body);
   try {
     const r = await api.post(`/diagrams/classes/${classId}/attributes`, body);
@@ -141,8 +144,9 @@ export const listMethods = async (classId) => {
   }
 };
 
-export const createMethod = async (classId, { name, return_type = "void" }) => {
-  const body = { name, return_type };
+// Notación UML 2.5 opcional: visibility, is_static, is_abstract, params.
+export const createMethod = async (classId, { name, return_type = "void", ...notation }) => {
+  const body = { name, return_type, ...notation };
   console.log("📤 [createMethod] POST body:", body);
   try {
     const r = await api.post(`/diagrams/classes/${classId}/methods`, body);

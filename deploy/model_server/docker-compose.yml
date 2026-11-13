@@ -1,0 +1,43 @@
+# Servidor del modelo PROPIO del equipo (Gemma 3 1B ajustado, GGUF) con
+# llama.cpp. Corre en una EC2 aparte; solo el servidor principal llega al
+# puerto 8080 (regla del security group), exige LOCAL_MODEL_API_KEY y sirve
+# SOLO HTTPS con un certificado propio (make_cert.sh) en el que el backend
+# confia en exclusiva (pinning): la clave del modelo y las consultas viajan
+# cifradas entre los dos servidores.
+# El backend le habla en backend/app/services/trained_model.py.
+services:
+  llama:
+    # Version fija: una actualizacion de llama.cpp no cambia el servidor sola.
+    image: ghcr.io/ggml-org/llama.cpp:server-b12242
+    container_name: modelo-propio
+    restart: unless-stopped
+    command: [
+      "-m", "/models/assistant.gguf",
+      "--host", "0.0.0.0", "--port", "8080",
+      # Varios desarrolladores consultan a la vez: 4 consultas en paralelo,
+      # cada una con su PROPIO contexto de 4096 tokens (16384 / 4). Antes el
+      # paralelismo quedaba en automatico, con 4 lugares compartiendo un
+      # unico contexto de 4096: con 3-4 consultas juntas (cada prompt mide
+      # ~800-1700 tokens mas la respuesta) se podia quedar sin espacio. El
+      # cache extra ocupa ~0,5 GB de RAM.
+      "-c", "16384",
+      "-np", "4",
+      "-t", "2",             # t3.medium: 2 vCPU
+      "--alias", "gemma-3-1b-equipo",
+      "--api-key", "${LOCAL_MODEL_API_KEY}",
+      "--ssl-key-file", "/certs/key.pem",
+      "--ssl-cert-file", "/certs/cert.pem",
+    ]
+    volumes:
+      - ./models:/models:ro
+      - ./certs:/certs:ro
+    ports:
+      - "8080:8080"
+    # El chequeo de la imagen usa http://: con HTTPS hay que reemplazarlo
+    # (-k: es dentro del propio contenedor, contra localhost).
+    healthcheck:
+      test: ["CMD", "curl", "-fsk", "https://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s

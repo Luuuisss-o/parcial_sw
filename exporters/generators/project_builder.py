@@ -2,9 +2,7 @@
 import os
 from exporters.generators.json_to_full_orm import generate_from_json
 from exporters.generators.model_to_repository import generate_repositories
-from exporters.generators.repository_to_service import generate_services
-from exporters.generators.service_to_controller import generate_controllers
-from exporters.generators.model_to_dto import generate_dtos
+from exporters.generators.api_layer import generate_api_layer
 from exporters.generators.postman_generator import generate_postman
 from exporters.generators.uap_generator import generate_uap
 
@@ -43,14 +41,8 @@ def build_project(json_path: str, output_dir: str):
     # 2) Repositorios
     generate_repositories(json_path, src_repositories, TEMPLATES_DIR)
 
-    # 3) Servicios
-    generate_services(json_path, src_services, TEMPLATES_DIR)
-
-    # 4) Controladores
-    generate_controllers(json_path, src_controllers, TEMPLATES_DIR)
-
-    # 5) DTOs
-    generate_dtos(json_path, src_dtos, TEMPLATES_DIR)
+    # 3-5) DTOs, Servicios, Controladores y manejo de errores (api_layer.py)
+    generate_api_layer(json_path, src_main, TEMPLATES_DIR)
 
     # 6) Protocolo UAP (manifest/schema/tools/invoke/sync) -- se genera
     # despues de los DTOs porque reusa el mismo modelo de atributos, y
@@ -134,9 +126,37 @@ compila dentro del contenedor). El backend espera a que la base de datos
 este lista antes de arrancar.
 
 El backend queda escuchando en **http://localhost:8090**. Con
-`spring.jpa.hibernate.ddl-auto=create` (ver `application.properties`),
-Hibernate crea las tablas solo al arrancar -- no hace falta correr ningun
-script SQL a mano.
+`spring.jpa.hibernate.ddl-auto=update` (ver `application.properties`),
+Hibernate crea las tablas que falten al arrancar, sin borrar los datos ya
+cargados -- no hace falta correr ningun script SQL a mano. Para empezar con
+la base vacia: `DDL_AUTO=create docker compose up -d`.
+
+Credenciales: `docker-compose.yml` toma `DB_NAME`, `DB_USER` y
+`DB_PASSWORD` de un archivo `.env` junto a el (si no existe, usa los
+valores de desarrollo de la tabla de abajo). Para un despliegue real,
+crea ese `.env` con una contrasena propia.
+
+## API REST
+
+Cada clase del diagrama tiene su CRUD en `/api/<clase>s` (ej.
+`/api/pedidos`). Entra y sale un DTO con el `id`, los atributos y las
+relaciones como ids: `clienteId` (a-uno) o `productoIds` (a-muchos). Las
+relaciones del lado inverso se devuelven pero son de solo lectura (se
+asignan desde la otra clase).
+
+| Metodo | Ruta | Respuesta |
+|---|---|---|
+| GET | `/api/<clase>s` | 200, lista |
+| GET | `/api/<clase>s/{id}` | 200, o 404 si no existe |
+| POST | `/api/<clase>s` | 201 creado; 400 si falta un campo obligatorio o un id referenciado no existe |
+| PUT | `/api/<clase>s/{id}` | 200 (reemplaza todos los campos), o 404 |
+| DELETE | `/api/<clase>s/{id}` | 204, 404, o 409 si otro registro todavia lo referencia |
+
+Los errores vienen como JSON con un `message` legible.
+
+El backend genera el CRUD completo de lo que el diagrama expresa; reglas de
+negocio que el diagrama no describe (calculos, estados, permisos) hay que
+programarlas aparte en los `services/`.
 
 Probar que levanto bien:
 

@@ -82,6 +82,16 @@ def _cursor_color(email: str) -> str:
     return _CURSOR_COLORS[checksum % len(_CURSOR_COLORS)]
 
 
+def _is_read_only(user_id: int, diagram_id: str) -> bool:
+    from app.routers._helpers import can_edit
+    db = SessionLocal()
+    try:
+        d = db.get(Diagram, UUID(diagram_id))
+        return d is None or not can_edit(db, user_id, d)
+    finally:
+        db.close()
+
+
 @router.websocket("/{diagram_id}/ws")
 async def websocket_endpoint(websocket: WebSocket, diagram_id: str):
     """
@@ -109,6 +119,10 @@ async def websocket_endpoint(websocket: WebSocket, diagram_id: str):
     Mensajes que puede mandar el cliente para el cursor en vivo:
       {"action": "cursor", "x": <float>, "y": <float>, "label": "<opcional>"}
       {"action": "cursor_left"}   (al salir del lienzo, para borrar el cursor en el resto sin esperar el timeout)
+
+    Keepalive: {"action": "ping"} -> {"event": "pong"} (solo a quien lo mando).
+    nginx corta el WebSocket tras 100 s sin trafico; una pestaña quieta (sin
+    mover el mouse) dejaba de recibir cambios sin enterarse.
 
     `x`/`y` viajan en coordenadas del "mundo" del diagrama (la grilla, no
     pixeles de pantalla): cada participante tiene su propio pan/zoom, asi
@@ -170,6 +184,10 @@ async def websocket_endpoint(websocket: WebSocket, diagram_id: str):
                 }, exclude=websocket)
                 continue
 
+            if action == "ping":
+                await websocket.send_json({"event": "pong", "data": {}})
+                continue
+
             if action == "cursor_left":
                 await ws_manager.broadcast(diagram_id, {
                     "event": "cursor.left",
@@ -182,6 +200,10 @@ async def websocket_endpoint(websocket: WebSocket, diagram_id: str):
                 continue
 
             if action == "lock":
+                # Un lector no puede tomar una clase: se la bloquearía a los
+                # que sí editan.
+                if _is_read_only(user_id, diagram_id):
+                    continue
                 if lock_manager.acquire(diagram_id, class_id, email, websocket):
                     await ws_manager.broadcast(diagram_id, {
                         "event": "class.locked",

@@ -14,6 +14,7 @@ import useVoiceRecorder from "../../hooks/useVoiceRecorder";
 import Icon from "../common/Icon";
 import ChatMarkdown from "../common/ChatMarkdown";
 import AiSettingsBar from "./AiSettingsBar";
+import ProposalCard from "./ProposalCard";
 
 // Misma paleta y mismo cálculo que el backend (realtime._cursor_color):
 // suma de bytes UTF-8 del email, así el color del autor en el chat coincide
@@ -33,6 +34,7 @@ const SUGERENCIAS = [
   "@IA relacioná Cliente y Pedido de uno a muchos",
   "@IA ¿qué diferencia hay entre agregación y composición?",
   "@IA no me acuerdo qué es un atributo derivado",
+  "@IA revisá las relaciones del diagrama, ¿están bien las cardinalidades?",
 ];
 
 const initials = (name = "") =>
@@ -75,7 +77,7 @@ function Avatar({ name, color, size = 26, title }) {
   );
 }
 
-function ChatMessage({ m, mine }) {
+function ChatMessage({ m, mine, canDecide, onDecide }) {
   const time = <span className="text-muted" style={{ fontSize: 11 }}>{formatTime(m.created_at)}</span>;
 
   // ---- Respuesta (o error) de la IA ----
@@ -98,6 +100,11 @@ function ChatMessage({ m, mine }) {
             <strong style={{ fontSize: 12, color: isError ? "var(--danger)" : "var(--accent)" }}>
               {m.author_name}
             </strong>
+            {m.ai_model_label && (
+              <span style={{ fontSize: 10, color: "var(--text-muted)" }} title="Modelo que generó la respuesta">
+                · {m.ai_model_label}
+              </span>
+            )}
             {m.addressed_to_name && (
               <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
                 responde a <strong style={{ color: "var(--text)" }}>@{m.addressed_to_name}</strong>
@@ -119,13 +126,16 @@ function ChatMessage({ m, mine }) {
             {m.ai_mode === "MENTOR" && !isError && (
               <div
                 style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--accent)", marginBottom: 4 }}
-                title="Respuesta teórica: la IA no modificó el diagrama"
+                title="Respuesta del asesor: la IA no modificó el diagrama"
               >
                 <Icon name="help" size={11} />
-                Mentoría · no modifica el diagrama
+                {m.proposal ? "Asesor · propone, no modifica el diagrama" : "Mentoría · no modifica el diagrama"}
               </div>
             )}
             <ChatMarkdown text={m.content} />
+            {m.proposal && (
+              <ProposalCard proposal={m.proposal} canDecide={canDecide(m.proposal)} onDecide={onDecide} />
+            )}
             {nActions > 0 && (
               <div
                 style={{
@@ -193,6 +203,7 @@ export default function ChatPanel({ diagramId, myEmail, isOwner = false, aiSolut
   const [aiMode, setAiMode] = useState(false);
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState(null);
+  const [aiSettings, setAiSettings] = useState(null);
   const endRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -215,7 +226,10 @@ export default function ChatPanel({ diagramId, myEmail, isOwner = false, aiSolut
     if (open) endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [open, messages.length, pendingList.length]);
 
-  const willAskAi = aiMode || hasAiMention(text);
+  const aiEnabled = aiSettings?.enabled !== false;
+  const willAskAi = aiEnabled && (aiMode || hasAiMention(text));
+  // Una propuesta la decide quien hizo la consulta o el dueño del diagrama.
+  const canDecide = (p) => p.status === "proposed" && (isOwner || p.requested_by_email === myEmail);
 
   const submit = async (value = text) => {
     const v = value.trim();
@@ -321,7 +335,12 @@ export default function ChatPanel({ diagramId, myEmail, isOwner = false, aiSolut
         </button>
       </div>
 
-      <AiSettingsBar diagramId={diagramId} isOwner={isOwner} initialEnabled={aiSolutionsEnabled} />
+      <AiSettingsBar
+        diagramId={diagramId}
+        isOwner={isOwner}
+        initialEnabled={aiSolutionsEnabled}
+        onChange={setAiSettings}
+      />
 
       {/* Conversación */}
       <div
@@ -347,9 +366,10 @@ export default function ChatPanel({ diagramId, myEmail, isOwner = false, aiSolut
           <div style={{ display: "grid", gap: "var(--sp-3)" }}>
             <p className="text-muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
               Conversá con tu equipo en tiempo real. Para consultar al asistente escribí{" "}
-              <strong>@IA</strong> al principio del mensaje: puede editar el diagrama por vos o
-              explicarte conceptos de diseño (UML, patrones, requerimientos) como un mentor. La
-              pregunta y la respuesta las ve todo el equipo, y la IA te responde a vos por tu nombre.
+              <strong>@IA</strong> al principio del mensaje: edita el diagrama cuando se lo pedís, y
+              como asesor revisa el modelo, explica conceptos de diseño y deja <strong>propuestas</strong>{" "}
+              de cambios que quien preguntó (o el dueño) puede aplicar con un botón. La pregunta y la
+              respuesta las ve todo el equipo, y la IA te responde a vos por tu nombre.
             </p>
             <div style={{ display: "grid", gap: "var(--sp-2)" }}>
               {SUGERENCIAS.map((s) => (
@@ -379,7 +399,13 @@ export default function ChatPanel({ diagramId, myEmail, isOwner = false, aiSolut
         )}
 
         {messages.map((m) => (
-          <ChatMessage key={m.id} m={m} mine={m.role === "USER" && m.author_email === myEmail} />
+          <ChatMessage
+            key={m.id}
+            m={m}
+            mine={m.role === "USER" && m.author_email === myEmail}
+            canDecide={canDecide}
+            onDecide={chat.decide}
+          />
         ))}
 
         {pendingList.map(([reqId, p]) => (
@@ -448,8 +474,8 @@ export default function ChatPanel({ diagramId, myEmail, isOwner = false, aiSolut
           <button
             className={`btn btn-icon ${willAskAi ? "btn-active" : ""}`}
             onClick={() => setAiMode((v) => !v)}
-            disabled={sending || hasAiMention(text)}
-            title={willAskAi ? "El mensaje se enviará a la IA" : "Preguntarle a la IA"}
+            disabled={sending || hasAiMention(text) || !aiEnabled}
+            title={!aiEnabled ? "El asesor IA está desactivado en este diagrama" : willAskAi ? "El mensaje se enviará a la IA" : "Preguntarle a la IA"}
             aria-pressed={willAskAi}
           >
             <Icon name="sparkles" />
@@ -472,7 +498,12 @@ export default function ChatPanel({ diagramId, myEmail, isOwner = false, aiSolut
           </button>
         </div>
         <div className="text-muted" style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
-          {willAskAi ? (
+          {!aiEnabled ? (
+            <>
+              <Icon name="lock" size={11} />
+              El asesor IA está desactivado en este diagrama
+            </>
+          ) : willAskAi ? (
             <>
               <Icon name="sparkles" size={11} style={{ color: "var(--accent)" }} />
               Pregunta a la IA · todo el equipo verá la pregunta y la respuesta

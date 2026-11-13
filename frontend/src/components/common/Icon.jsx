@@ -157,6 +157,21 @@ const PATHS = {
       <path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16Z" />
     </>
   ),
+  // Lupa (zoom)
+  zoomIn: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20.5 20.5-4.5-4.5M11 8v6M8 11h6" />
+    </>
+  ),
+  zoomOut: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20.5 20.5-4.5-4.5M8 11h6" />
+    </>
+  ),
+  // Ajustar a la pantalla
+  fit: <path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" />,
 };
 
 export default function Icon({ name, size = 16, className = "", style }) {

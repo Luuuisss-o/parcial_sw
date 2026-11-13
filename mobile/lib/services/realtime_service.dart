@@ -14,16 +14,28 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../config.dart';
 
 typedef RealtimeListener = void Function(Map<String, dynamic> data);
 
+/// nginx (frontend/nginx.prod.conf.template) corta un WebSocket tras 100 s
+/// sin tráfico. La web siempre manda cursores, pero el celular puede pasar
+/// minutos callado (descargando el modelo o mientras la IA local piensa):
+/// sin esto el canal moría en silencio y dejaban de llegar las respuestas
+/// del chat y los cambios del diagrama.
+const Duration kWsPingInterval = Duration(seconds: 25);
+
 class RealtimeService {
   WebSocketChannel? _channel;
   String? _diagramId;
+  String? _token;
   String? _connId;
   StreamSubscription? _sub;
+  Timer? _retry;
+  int _attempt = 0;
+  bool _reconnecting = false;
 
   final Map<String, List<RealtimeListener>> _listeners = {};
 
@@ -33,10 +45,16 @@ class RealtimeService {
   void connect(String diagramId, String token) {
     if (_channel != null && _diagramId == diagramId) return;
     disconnect();
-
     _diagramId = diagramId;
+    _token = token;
+    _open();
+  }
+
+  void _open() {
+    final diagramId = _diagramId, token = _token;
+    if (diagramId == null || token == null) return;
     final uri = Uri.parse('${AppConfig.wsBaseUrl}/diagrams/$diagramId/ws?token=${Uri.encodeComponent(token)}');
-    _channel = WebSocketChannel.connect(uri);
+    _channel = IOWebSocketChannel.connect(uri, pingInterval: kWsPingInterval);
 
     _sub = _channel!.stream.listen(
       (raw) {
@@ -47,27 +65,58 @@ class RealtimeService {
           return;
         }
         final event = msg['event'] as String?;
-        final data = (msg['data'] as Map?)?.cast<String, dynamic>() ?? {};
+        // La mayoría de los eventos traen un objeto, pero algunos (ej.
+        // "presence", Fase 2) traen una lista: se entrega como {"items": [...]}
+        // en vez de romper con un cast inválido.
+        final rawData = msg['data'];
+        final data = rawData is Map
+            ? rawData.cast<String, dynamic>()
+            : <String, dynamic>{if (rawData is List) 'items': rawData};
         if (event == 'connected') {
           _connId = data['conn_id'] as String?;
+          _attempt = 0;
+          // Lo que pasó mientras estuvimos desconectados no llegó: las
+          // pantallas escuchan 'reconnected' para recargar.
+          if (_reconnecting) {
+            _reconnecting = false;
+            _emit('reconnected', const {});
+          }
           return;
         }
         if (event != null) _emit(event, data);
       },
-      onDone: () {
-        _channel = null;
-      },
-      onError: (_) {
-        _channel = null;
-      },
+      onDone: _scheduleReconnect,
+      onError: (_) => _scheduleReconnect(),
+      cancelOnError: true,
     );
   }
 
+  /// Reintenta con espera creciente (2, 4, 8... hasta 30 s) mientras la
+  /// pantalla siga abierta (disconnect() pone _diagramId en null).
+  void _scheduleReconnect() {
+    _sub?.cancel();
+    _channel = null;
+    _connId = null;
+    if (_diagramId == null || _retry != null) return;
+    _reconnecting = true;
+    final secs = (2 << _attempt).clamp(2, 30);
+    _attempt = (_attempt + 1).clamp(0, 5);
+    _retry = Timer(Duration(seconds: secs), () {
+      _retry = null;
+      _open();
+    });
+  }
+
   void disconnect() {
+    _retry?.cancel();
+    _retry = null;
+    _diagramId = null;
+    _token = null;
+    _reconnecting = false;
+    _attempt = 0;
     _sub?.cancel();
     _channel?.sink.close();
     _channel = null;
-    _diagramId = null;
     _connId = null;
   }
 

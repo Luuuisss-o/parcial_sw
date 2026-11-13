@@ -162,3 +162,27 @@ Desde la app: pantalla "¿Qué querés hacer?" → "Usar un sistema generado" �
 elegir USB o WiFi/LAN → Conectar. La app descubre las entidades y
 operaciones disponibles automáticamente (no hace falta programar nada
 específico para ese backend).
+
+## 10. Chat del equipo con IA local personalizada (Fase 2)
+
+En la pantalla del diagrama, el botón 💬 abre el **chat del equipo** (el mismo que la web).
+Las consultas que empiezan con `@IA` las responde el **modelo personalizado que corre en este
+celular** (interruptor *"IA en este celular"*); la pregunta y la respuesta las ve todo el equipo,
+y la respuesta va dirigida por nombre a quien preguntó. Con el interruptor apagado, responde la
+IA del servidor.
+
+- El modelo se entrena en Colab (`training/finetune_colab.ipynb`) y se publica en el backend;
+  la app lo descarga sola (`GET /models/assistant`), retoma descargas cortadas y verifica el
+  SHA-256. Ver `training/README.md`.
+- El prompt del modelo está en `lib/services/assistant_prompt.dart` y es el mismo con el que se
+  entrena (verificado por tests en Dart y en Python).
+- Las acciones que propone el modelo se aplican con la API REST normal
+  (`lib/services/diagram_tool_runner.dart`); en preguntas teóricas se ignoran (la mentoría nunca
+  modifica el diagrama).
+
+Prueba de integración contra el backend real (descarga del modelo, consulta respondida en el
+dispositivo y respuesta publicada para el equipo):
+
+```bash
+flutter test test/integration --dart-define=API_BASE_URL=http://127.0.0.1:8000
+```

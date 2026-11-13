@@ -14,6 +14,14 @@ class RelType(str, enum.Enum):
     COMPOSITION = "COMPOSITION"
     INHERITANCE = "INHERITANCE"
     DEPENDENCY = "DEPENDENCY"
+    # UML 2.5: una clase implementa una interfaz (línea punteada con
+    # triángulo hueco hacia la interfaz).
+    REALIZATION = "REALIZATION"
+
+
+# Notación UML 2.5 del diagrama de clases
+CLASS_KINDS = ("class", "abstract", "interface", "enumeration")
+VISIBILITIES = ("+", "-", "#", "~")  # public, private, protected, package
 
 
 # =========================
@@ -32,6 +40,21 @@ class Diagram(Base):
     # dueño del diagrama; apagado, rige la regla de la Fase 1 (solo
     # ediciones puntuales que el usuario ya nombro).
     ai_solutions_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+
+    # Fase 2 (CU-17): proveedor de IA del diagrama. NULL = el por defecto del
+    # servidor (Gemini). "openai_compatible" = un modelo local o en Colab
+    # (Ollama, LM Studio, vLLM...) en ai_base_url. El token NUNCA se devuelve
+    # por la API: solo se informa si hay uno guardado.
+    ai_provider: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    ai_base_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    ai_model: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    ai_api_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    # Segundo parcial (CU-08): el dueño decide si el asesor participa
+    # (respondiendo a "@IA") y si puede proponer cambios al diagrama. Las
+    # propuestas nunca se aplican solas: ver AiProposal.
+    ai_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    ai_proposals_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
     # Relaciones
     owner: Mapped["User"] = relationship()
@@ -76,6 +99,9 @@ class Clase(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     nombre: Mapped[str] = mapped_column(String(120), nullable=False)
+    # class | abstract | interface | enumeration (ver CLASS_KINDS). En una
+    # enumeración, los atributos son sus literales.
+    tipo_clase: Mapped[str] = mapped_column(String(20), nullable=False, default="class", server_default="class")
 
     diagram_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("diagram.id", ondelete="CASCADE"), nullable=False, index=True)
     diagram: Mapped["Diagram"] = relationship(back_populates="classes")
@@ -141,6 +167,13 @@ class Relacion(Base):
     # asociacion solida cualquiera.
     es_clase_asociacion: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
+    # UML 2.5: nombre de rol y navegabilidad de cada extremo de la asociación.
+    # Navegable = se dibuja una flecha abierta en ese extremo.
+    rol_origen: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    rol_destino: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    navegable_origen: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    navegable_destino: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
 
 
 
@@ -158,6 +191,13 @@ class Atributo(Base):
     tipo: Mapped[str] = mapped_column(String(60), default="string")
     requerido: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # UML 2.5: [visibilidad] [/]nombre : tipo [multiplicidad] [= valor]
+    visibilidad: Mapped[str] = mapped_column(String(1), nullable=False, default="-", server_default="-")
+    es_estatico: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    es_derivado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    multiplicidad: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    valor_inicial: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+
     clase_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clase.id", ondelete="CASCADE"), nullable=False)
     clase: Mapped["Clase"] = relationship(back_populates="atributos")
 
@@ -174,6 +214,13 @@ class Metodo(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     nombre: Mapped[str] = mapped_column(String(120), nullable=False)
     tipo_retorno: Mapped[str] = mapped_column(String(60), default="void")
+
+    # UML 2.5: [visibilidad] nombre(parámetros) : tipo; estático subrayado,
+    # abstracto en cursiva.
+    visibilidad: Mapped[str] = mapped_column(String(1), nullable=False, default="+", server_default="+")
+    es_estatico: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    es_abstracto: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    parametros: Mapped[str] = mapped_column(String(300), nullable=False, default="", server_default="")
 
     clase_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("clase.id", ondelete="CASCADE"), nullable=False)
     clase: Mapped["Clase"] = relationship(back_populates="metodos")

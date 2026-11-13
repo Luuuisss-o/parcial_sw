@@ -75,8 +75,9 @@ class _AlexaScreenState extends State<AlexaScreen> {
 
       if (!app.llm.isLoaded) {
         setState(() => _prepareLabel = 'Cargando el modelo de lenguaje (puede tardar un momento)...');
-        await app.downloader.ensureLlmModel(onProgress: (_) {});
-        await app.llm.load(await app.downloader.llmModelPath());
+        final model = await app.downloader.prepareAssistantModel(app.api, onProgress: (_) {});
+        app.llm.modelLabel = model.label;
+        await app.llm.load(model.path);
       }
 
       if (mounted) setState(() => _stage = _AlexaStage.idle);

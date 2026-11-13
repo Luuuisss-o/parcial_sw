@@ -15,15 +15,16 @@ import logging
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
 from app.db import get_db
-from app.models.chat import ChatMessage
+from app.models.chat import ChatMessage, ChatRole
 from app.models.user import User
-from app.schemas.chat import ChatHistoryOut, ChatMessageIn, ChatMessageOut
+from app.schemas.chat import AiContextOut, ChatHistoryOut, ChatMessageIn, ChatMessageOut, DeviceAnswerIn
 from app.services import chat_service
+from app.utils import realtime_events
 
 from ._helpers import get_my_diagram
 
@@ -60,12 +61,79 @@ def post_chat(
 ):
     diagram = get_my_diagram(db, me, diagram_id)
     asks_ai, _ = chat_service.parse_ai_mention(body.text, body.ask_ai)
+
+    # Asesor desactivado por el dueño (CU-08): el mensaje queda en el chat
+    # como uno comun y la IA avisa que no participa.
+    if asks_ai and not diagram.ai_enabled:
+        msg = chat_service.create_user_message(db, diagram, me, body.text, asks_ai=False)
+        chat_service.publish(diagram.id, msg)
+        chat_service.post_ai_note(db, msg, chat_service.AI_DISABLED_NOTE)
+        return msg
+    # Limite de uso: una consulta a la IA en curso por persona y diagrama.
+    if asks_ai and chat_service.question_in_progress(db, diagram.id, me.id):
+        raise HTTPException(429, "Ya tenés una consulta a la IA en curso: esperá su respuesta antes de hacer otra.")
+
     # Se guarda el texto tal como lo escribio el usuario (con su "@IA"), asi el
     # chat muestra exactamente lo que mando; al modelo le llega sin la mencion.
-    msg = chat_service.create_user_message(db, diagram, me, body.text, asks_ai)
+    msg = chat_service.create_user_message(db, diagram, me, body.text, asks_ai,
+                                           on_device=bool(asks_ai and body.answer_on_device))
     chat_service.publish(diagram.id, msg)
     logger.info(f"[CHAT] diagram={diagram.id} user={me.id} asks_ai={asks_ai}")
 
-    if asks_ai:
+    if asks_ai and body.answer_on_device:
+        # La responde el modelo local del celular de quien pregunta: el
+        # servidor no llama a ningun modelo, solo avisa a todos que la IA
+        # (en ese celular) esta respondiendo.
+        realtime_events.fire(realtime_events.notify_ai_started(
+            diagram.id, chat_service.question_text(msg.content), request_id=str(msg.id),
+            requested_by={"id": me.id, "name": me.name}, on_device=True,
+        ))
+    elif asks_ai:
         background_tasks.add_task(chat_service.run_ai_question_background, msg.id)
     return msg
+
+
+def _my_pending_question(db: Session, me: User, diagram_id: UUID, question_id: UUID) -> tuple[ChatMessage, object]:
+    diagram = get_my_diagram(db, me, diagram_id)
+    q = db.get(ChatMessage, question_id)
+    if q is None or q.diagram_id != diagram.id or not q.asks_ai or q.role != ChatRole.USER:
+        raise HTTPException(404, "Consulta no encontrada")
+    if q.author_id != me.id:
+        raise HTTPException(403, "Solo quien hizo la consulta puede responderla con su modelo local")
+    return q, diagram
+
+
+@router.get("/{diagram_id}/chat/{question_id}/context", response_model=AiContextOut)
+def question_context(
+    diagram_id: UUID,
+    question_id: UUID,
+    db: Session = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
+    """Contexto (memoria hibrida + estado del diagrama) para que el modelo
+    local del celular responda la consulta. Solo para su autor."""
+    q, diagram = _my_pending_question(db, me, diagram_id, question_id)
+    return chat_service.device_context(db, q, diagram)
+
+
+@router.post("/{diagram_id}/chat/{question_id}/answer", response_model=ChatMessageOut,
+             status_code=status.HTTP_201_CREATED)
+def answer_from_device(
+    diagram_id: UUID,
+    question_id: UUID,
+    body: DeviceAnswerIn,
+    db: Session = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
+    """Publica la respuesta que generó el modelo local del celular. Queda en
+    el chat dirigida al autor y visible para todo el equipo, igual que una
+    respuesta del servidor. Las ediciones que haya hecho el celular ya se
+    aplicaron por la API REST normal (y se difundieron por WebSocket)."""
+    q, _ = _my_pending_question(db, me, diagram_id, question_id)
+    already = db.query(ChatMessage).filter(ChatMessage.reply_to_id == q.id).first()
+    if already is not None:
+        raise HTTPException(409, "Esa consulta ya tiene respuesta")
+    return chat_service.save_device_answer(
+        db, q, content=body.content, error=body.error, actions=body.actions,
+        ai_mode=body.ai_mode, model_label=body.model_label, proposed_actions=body.proposed_actions,
+    )

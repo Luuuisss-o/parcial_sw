@@ -26,15 +26,13 @@ import com.test.services.{{ e.class_name }}Service;
  * archivo simplemente no existe -- se rechaza antes de tocar la base,
  * nunca se intenta resolver dinamicamente.
  *
- * Idempotencia: create_* guarda un mapa en memoria clientRecordId -> id
- * generado. Si el cliente reintenta la misma operacion (mismo
- * clientRecordId, tipico de una cola offline en el movil que no supo si el
- * primer intento llego a destino), se devuelve el mismo id sin crear una
- * fila nueva. Es un mapa en memoria (no una tabla) a proposito: mantenerlo
- * simple para este alcance; se pierde si el proceso reinicia, lo cual en
- * el peor caso hace que un reintento MUY tardio despues de un restart cree
- * una fila duplicada -- aceptable para el examen, documentado en el README
- * generado.
+ * Idempotencia: create_* guarda el clientRecordId junto al CREATE en
+ * uap_change_log (columna unica). Si el cliente reintenta la misma
+ * operacion (mismo clientRecordId, tipico de una cola offline en el movil
+ * que no supo si el primer intento llego a destino), se devuelve el mismo
+ * id sin crear una fila nueva -- tambien despues de reiniciar el backend
+ * (antes era un mapa en memoria y un reintento tardio duplicaba el
+ * registro). El mapa en memoria queda solo como atajo.
  */
 @Component
 public class UapToolDispatcher {
@@ -62,7 +60,24 @@ public class UapToolDispatcher {
     // linea de escritura desde un solo lugar (este dispatcher), no
     // justifica generar un repository entero solo para esto.
     private void logChange(String entityKey, Long serverId, String op) {
-        entityManager.persist(new UapChangeLog(entityKey, serverId, op));
+        logChange(entityKey, serverId, op, null);
+    }
+
+    private void logChange(String entityKey, Long serverId, String op, String clientRecordId) {
+        entityManager.persist(new UapChangeLog(entityKey, serverId, op, clientRecordId));
+    }
+
+    /** Id ya creado para este clientRecordId (memoria o uap_change_log), o null. */
+    private Long alreadyCreated(String clientRecordId) {
+        if (clientRecordId == null) return null;
+        Long cached = idempotencyCache.get(clientRecordId);
+        if (cached != null) return cached;
+        List<Long> ids = entityManager.createQuery(
+                "select c.serverId from UapChangeLog c where c.clientRecordId = :id", Long.class)
+                .setParameter("id", clientRecordId)
+                .setMaxResults(1)
+                .getResultList();
+        return ids.isEmpty() ? null : ids.get(0);
     }
 
     @Transactional
@@ -74,8 +89,9 @@ public class UapToolDispatcher {
         switch (toolId) {
 {% for e in entities %}
             case "create_{{ e.entity_key }}": {
-                if (clientRecordId != null && idempotencyCache.containsKey(clientRecordId)) {
-                    return ok(Map.of("ok", true, "id", idempotencyCache.get(clientRecordId), "idempotent", true));
+                Long previous = alreadyCreated(clientRecordId);
+                if (previous != null) {
+                    return ok(Map.of("ok", true, "id", previous, "idempotent", true));
                 }
                 Set<String> allowed = Set.of({{ e.writable_fields | map(attribute='name') | map('tojson') | join(', ') }});
                 ResponseEntity<Object> rejected = rejectUnknownFields(input, allowed);
@@ -89,7 +105,7 @@ public class UapToolDispatcher {
 {% endfor %}
                 {{ e.class_name }} saved = {{ e.entity_key }}Service.save(entity);
                 if (clientRecordId != null) idempotencyCache.put(clientRecordId, saved.{{ e.id_field.getter }}());
-                logChange("{{ e.entity_key }}", saved.{{ e.id_field.getter }}(), "CREATE");
+                logChange("{{ e.entity_key }}", saved.{{ e.id_field.getter }}(), "CREATE", clientRecordId);
                 return ok(Map.of("ok", true, "{{ e.entity_key }}", saved));
             }
             case "list_{{ e.entity_key }}": {

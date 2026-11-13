@@ -31,9 +31,13 @@ const TIPOS = [
   { v: "ASSOCIATION", label: "Asociación", ayuda: "Se relacionan, pero cada una existe por su cuenta." },
   { v: "AGGREGATION", label: "Agregación", ayuda: "Una agrupa a la otra, que igual sobrevive sin ella." },
   { v: "COMPOSITION", label: "Composición", ayuda: "Una contiene a la otra; sin la primera, la otra no existe." },
-  { v: "INHERITANCE", label: "Herencia", ayuda: "El destino es un tipo especializado del origen." },
+  { v: "INHERITANCE", label: "Herencia (generalización)", ayuda: "El origen es un tipo especializado del destino (la flecha apunta al padre)." },
+  { v: "REALIZATION", label: "Realización", ayuda: "El origen implementa la interfaz del destino." },
   { v: "DEPENDENCY", label: "Dependencia", ayuda: "El origen usa al destino de forma puntual." },
 ];
+
+// Relaciones que no son asociaciones: sin multiplicidad, roles ni navegabilidad.
+const SIN_EXTREMOS = ["INHERITANCE", "DEPENDENCY", "REALIZATION"];
 
 const ANCHORS = [
   { v: "left", label: "Izquierda" },
@@ -54,7 +58,7 @@ function RelationTypePreview({ type }) {
   switch (type) {
     case "INHERITANCE":
       marker = (
-        <path d="M 44 8 L 30 4 L 44 0 z" fill="var(--surface-1)" stroke={color} strokeWidth="1.4" strokeLinejoin="round" />
+        <path d="M 44 8 L 58 4 L 44 0 z" fill="var(--surface-1)" stroke={color} strokeWidth="1.4" strokeLinejoin="round" />
       );
       break;
     case "AGGREGATION":
@@ -67,9 +71,16 @@ function RelationTypePreview({ type }) {
         <path d="M 44 8 L 34 4 L 44 0 L 54 4 z" fill={color} />
       );
       break;
+    case "REALIZATION":
+      dashed = true;
+      marker = (
+        <path d="M 44 8 L 58 4 L 44 0 z" fill="var(--surface-1)" stroke={color} strokeWidth="1.4" strokeLinejoin="round" />
+      );
+      break;
     case "DEPENDENCY":
       dashed = true;
-      marker = <path d="M 4 4 L 14 0 L 14 8 z" fill={color} />;
+      // Flecha abierta (UML 2.5)
+      marker = <path d="M 48 0.5 L 57 4 L 48 7.5" fill="none" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />;
       break;
     default: // ASSOCIATION
       marker = null;
@@ -83,7 +94,7 @@ function RelationTypePreview({ type }) {
   );
 }
 
-export default function RelationInspector({ relation, onUpdate, onDelete }) {
+export default function RelationInspector({ relation, onUpdate, onDelete, readOnly = false }) {
   const [localLabel, setLocalLabel] = useState(relation?.label ?? "");
   const [localMultOrigenMin, setLocalMultOrigenMin] = useState(relation?.src_mult_min ?? "");
   const [localMultOrigenMax, setLocalMultOrigenMax] = useState(
@@ -93,6 +104,9 @@ export default function RelationInspector({ relation, onUpdate, onDelete }) {
   const [localMultDestinoMax, setLocalMultDestinoMax] = useState(
     relation?.dst_mult_max === null ? "*" : relation?.dst_mult_max ?? ""
   );
+  // UML 2.5: nombre de rol de cada extremo
+  const [localSrcRole, setLocalSrcRole] = useState(relation?.src_role ?? "");
+  const [localDstRole, setLocalDstRole] = useState(relation?.dst_role ?? "");
 
   useEffect(() => {
     if (!relation) return;
@@ -101,6 +115,8 @@ export default function RelationInspector({ relation, onUpdate, onDelete }) {
     setLocalMultOrigenMax(relation.src_mult_max === null ? "*" : relation.src_mult_max);
     setLocalMultDestinoMin(relation.dst_mult_min ?? "");
     setLocalMultDestinoMax(relation.dst_mult_max === null ? "*" : relation.dst_mult_max);
+    setLocalSrcRole(relation.src_role ?? "");
+    setLocalDstRole(relation.dst_role ?? "");
   }, [
     relation?.id,
     relation?.label,
@@ -108,6 +124,8 @@ export default function RelationInspector({ relation, onUpdate, onDelete }) {
     relation?.src_mult_max,
     relation?.dst_mult_min,
     relation?.dst_mult_max,
+    relation?.src_role,
+    relation?.dst_role,
   ]);
 
   // Sin delay propio: los selects e inputs numéricos de este panel ya se
@@ -140,11 +158,17 @@ export default function RelationInspector({ relation, onUpdate, onDelete }) {
       src_mult_max: patch.src_mult_max ?? (localMultOrigenMax === "*" ? null : Number(localMultOrigenMax)),
       dst_mult_min: patch.dst_mult_min ?? (localMultDestinoMin === "" ? null : Number(localMultDestinoMin)),
       dst_mult_max: patch.dst_mult_max ?? (localMultDestinoMax === "*" ? null : Number(localMultDestinoMax)),
+      src_role: "src_role" in patch ? patch.src_role : localSrcRole,
+      dst_role: "dst_role" in patch ? patch.dst_role : localDstRole,
+      src_navigable: patch.src_navigable ?? !!relation.src_navigable,
+      dst_navigable: patch.dst_navigable ?? !!relation.dst_navigable,
     };
     save(() => onUpdate(body));
   };
 
   const debouncedUpdate = useDebouncedCallback((val) => fullUpdate({ label: val }), 400);
+  const debouncedSrcRole = useDebouncedCallback((val) => fullUpdate({ src_role: val }), 400);
+  const debouncedDstRole = useDebouncedCallback((val) => fullUpdate({ dst_role: val }), 400);
 
   const asideStyle = {
     width: collapsed ? "var(--inspector-collapsed-w, 44px)" : "var(--inspector-w)",
@@ -193,7 +217,7 @@ export default function RelationInspector({ relation, onUpdate, onDelete }) {
   }
 
   const tipoActual = TIPOS.find((t) => t.v === relation.type);
-  const esHerenciaODependencia = ["INHERITANCE", "DEPENDENCY"].includes(relation.type);
+  const esHerenciaODependencia = SIN_EXTREMOS.includes(relation.type);
 
   return (
     <aside style={asideStyle}>
@@ -239,18 +263,25 @@ export default function RelationInspector({ relation, onUpdate, onDelete }) {
             {tipoActual.label}
           </span>
         )}
-        <button
-          className="btn btn-danger-ghost btn-icon btn-sm"
-          onClick={onDelete}
-          title="Eliminar esta relación"
-          style={{ flexShrink: 0 }}
-        >
-          <Icon name="trash" size={14} />
-        </button>
+        {!readOnly && (
+          <button
+            className="btn btn-danger-ghost btn-icon btn-sm"
+            onClick={onDelete}
+            title="Eliminar esta relación"
+            style={{ flexShrink: 0 }}
+          >
+            <Icon name="trash" size={14} />
+          </button>
+        )}
       </div>
       <div style={{ borderBottom: "1px solid var(--border)" }} />
 
-      <div className="scroll" style={{ flex: 1, padding: "var(--sp-4)", display: "grid", gap: "var(--sp-5)", alignContent: "start" }}>
+      <fieldset
+        disabled={readOnly}
+        className="scroll"
+        style={{ flex: 1, padding: "var(--sp-4)", display: "grid", gap: "var(--sp-5)", alignContent: "start",
+                 border: 0, margin: 0, minWidth: 0, minHeight: 0 }}
+      >
         <RowError message={error} />
 
         {/* Quiénes se conectan */}
@@ -321,7 +352,7 @@ export default function RelationInspector({ relation, onUpdate, onDelete }) {
 
           {esHerenciaODependencia ? (
             <div className="text-subtle" style={{ fontSize: 12 }}>
-              La herencia y la dependencia no llevan multiplicidad.
+              La herencia, la realización y la dependencia no llevan multiplicidad.
             </div>
           ) : (
             <>
@@ -397,6 +428,66 @@ export default function RelationInspector({ relation, onUpdate, onDelete }) {
           )}
         </div>
 
+        {/* Roles y navegabilidad (UML 2.5) */}
+        {!esHerenciaODependencia && (
+          <div style={{ display: "grid", gap: "var(--sp-3)" }}>
+            <h4 className="section-title">Extremos (roles y navegabilidad)</h4>
+            <div className="text-subtle" style={{ fontSize: 12 }}>
+              El rol es el nombre con el que una clase ve a la otra. Un extremo navegable se dibuja con
+              una flecha abierta.
+            </div>
+            {[
+              {
+                titulo: relation.origen_nombre,
+                role: localSrcRole,
+                setRole: setLocalSrcRole,
+                saveRole: debouncedSrcRole,
+                nav: !!relation.src_navigable,
+                keyNav: "src_navigable",
+              },
+              {
+                titulo: relation.destino_nombre,
+                role: localDstRole,
+                setRole: setLocalDstRole,
+                saveRole: debouncedDstRole,
+                nav: !!relation.dst_navigable,
+                keyNav: "dst_navigable",
+              },
+            ].map((lado) => (
+              <div
+                key={lado.keyNav}
+                style={{
+                  display: "grid",
+                  gap: "var(--sp-2)",
+                  padding: "var(--sp-3)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius)",
+                  background: "var(--surface-2)",
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 600 }}>Extremo {lado.titulo}</div>
+                <input
+                  className="input input-sm"
+                  value={lado.role}
+                  placeholder="Rol (opcional, ej: cliente)"
+                  onChange={(e) => {
+                    lado.setRole(e.target.value);
+                    lado.saveRole(e.target.value);
+                  }}
+                />
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={lado.nav}
+                    onChange={(e) => fullUpdate({ [lado.keyNav]: e.target.checked })}
+                  />
+                  <span className="text-muted">Navegable hacia {lado.titulo}</span>
+                </label>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Etiqueta */}
         <div className="field">
           <label className="label">Etiqueta (opcional)</label>
@@ -445,7 +536,7 @@ export default function RelationInspector({ relation, onUpdate, onDelete }) {
             </div>
           </div>
         </div>
-      </div>
+      </fieldset>
     </aside>
   );
 }

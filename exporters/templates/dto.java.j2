@@ -1,21 +1,52 @@
 package com.test.dtos;
 
+import java.math.*;
+import java.time.*;
 import java.util.*;
-import java.time.*;   // 👈 Import para LocalDate y LocalDateTime
 
-public class {{ class_name }}Dto {
+/**
+ * Lo que entra y sale de /api/{{ e.path }}. Las relaciones viajan como ids
+ * (no como objetos anidados): evita la recursion infinita de las relaciones
+ * bidireccionales y deja claro que se referencia, no que se crea.
+{% for r in e.rels if not r.owner %}
+ * {{ r.dto_field }}: solo lectura (lado inverso de la relacion, se asigna desde {{ r.target }}).
+{% endfor %}
+ */
+public class {{ e.class_name }}Dto {
 
-{% for attr in attributes %}
-    private {{ attr.type }} {{ attr.name }};
+    private Long id;
+{% for a in e.attrs %}
+    private {{ a.type }} {{ a.name }};
+{% endfor %}
+{% for r in e.rels %}
+    private {{ "List<Long>" if r.is_list else "Long" }} {{ r.dto_field }};
 {% endfor %}
 
-{% for attr in attributes %}
-    public {{ attr.type }} get{{ attr.name[0]|upper }}{{ attr.name[1:] }}() {
-        return {{ attr.name }};
+    public Long getId() {
+        return id;
     }
 
-    public void set{{ attr.name[0]|upper }}{{ attr.name[1:] }}({{ attr.type }} {{ attr.name }}) {
-        this.{{ attr.name }} = {{ attr.name }};
+    public void setId(Long id) {
+        this.id = id;
+    }
+{% for a in e.attrs %}
+
+    public {{ a.type }} get{{ a.cap }}() {
+        return {{ a.name }};
+    }
+
+    public void set{{ a.cap }}({{ a.type }} {{ a.name }}) {
+        this.{{ a.name }} = {{ a.name }};
+    }
+{% endfor %}
+{% for r in e.rels %}
+
+    public {{ "List<Long>" if r.is_list else "Long" }} get{{ r.dto_cap }}() {
+        return {{ r.dto_field }};
+    }
+
+    public void set{{ r.dto_cap }}({{ "List<Long>" if r.is_list else "Long" }} {{ r.dto_field }}) {
+        this.{{ r.dto_field }} = {{ r.dto_field }};
     }
 {% endfor %}
 }

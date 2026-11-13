@@ -30,6 +30,7 @@
 
 import 'dart:convert';
 import 'package:llamadart/llamadart.dart';
+import 'assistant_prompt.dart';
 
 class LlmToolCall {
   final String tool;
@@ -58,6 +59,11 @@ class ChatReply extends LlmResponse {
 class LocalLlmService {
   LlamaEngine? _engine;
   bool _loaded = false;
+  String? _loadedPath;
+
+  /// Nombre del modelo cargado, para mostrar en el chat qué modelo respondió
+  /// (ej. "Gemma 3 1B personalizado v2026.11.08 (móvil)").
+  String modelLabel = 'Gemma 3 1B (móvil)';
 
   bool get isLoaded => _loaded;
 
@@ -94,16 +100,19 @@ una veterinaria"), respondé exactamente:
   /// Copia (si hace falta) y carga el modelo. Llamar una sola vez al abrir
   /// el asistente por primera vez en la sesión.
   Future<void> load(String modelPath) async {
-    if (_loaded) return;
+    if (_loaded && _loadedPath == modelPath) return;
+    if (_loaded) await dispose(); // cambió el modelo (ej. llegó uno personalizado nuevo)
     _engine = LlamaEngine(LlamaBackend());
     await _engine!.loadModel(modelPath);
     _loaded = true;
+    _loadedPath = modelPath;
   }
 
   Future<void> dispose() async {
     await _engine?.dispose();
     _engine = null;
     _loaded = false;
+    _loadedPath = null;
   }
 
   /// Le pasa el estado actual del diagrama (clases/relaciones existentes,
@@ -168,7 +177,18 @@ Instrucción del usuario: $userText
     return parseLlmResponseFromRaw(await _generate(prompt, maxTokens: 300));
   }
 
-  Future<String> _generate(String prompt, {int maxTokens = 200}) async {
+  /// Responde una consulta del CHAT DEL EQUIPO con el modelo local, usando
+  /// el mismo contrato con el que se entrenó el modelo personalizado
+  /// (assistant_prompt.dart). `context` es lo que devuelve
+  /// GET /diagrams/{id}/chat/{question_id}/context: quién pregunta, su hilo,
+  /// la conversación del equipo y el diagrama (memoria híbrida).
+  Future<AssistantReply> answerTeamQuestion(Map<String, dynamic> context) async {
+    final prompt = formatGemmaChat(kTeamAssistantSystemPrompt, buildTeamAssistantUserMessage(context));
+    final raw = await _generate(prompt, maxTokens: 512, temp: 0.2, stop: const ['<end_of_turn>']);
+    return parseAssistantReply(raw);
+  }
+
+  Future<String> _generate(String prompt, {int maxTokens = 200, double temp = 0.1, List<String> stop = const []}) async {
     if (!_loaded || _engine == null) {
       throw StateError('El modelo local todavía no está cargado.');
     }
@@ -182,7 +202,7 @@ Instrucción del usuario: $userText
     // que ya son tolerantes a texto extra alrededor por esta razón).
     await for (final token in _engine!.generate(
       prompt,
-      params: GenerationParams(maxTokens: maxTokens, temp: 0.1),
+      params: GenerationParams(maxTokens: maxTokens, temp: temp, stopSequences: stop),
     )) {
       buffer.write(token);
     }

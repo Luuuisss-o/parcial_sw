@@ -4,9 +4,11 @@ services:
     container_name: {{ artifactId }}-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: {{ db_name }}
-      POSTGRES_USER: {{ db_user }}
-      POSTGRES_PASSWORD: {{ db_pass }}
+      # Credenciales por variables de entorno (archivo .env junto a este
+      # compose); los valores despues de ":-" son solo para desarrollo local.
+      POSTGRES_DB: ${DB_NAME:-{{ db_name }}}
+      POSTGRES_USER: ${DB_USER:-{{ db_user }}}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-{{ db_pass }}}
       # Bolivia: UTC-04:00 fijo, sin horario de verano. PGTZ controla la
       # zona horaria de las CONEXIONES nuevas a Postgres (no la del
       # cluster en si, que Postgres siempre guarda en UTC internamente
@@ -19,7 +21,7 @@ services:
     volumes:
       - {{ artifactId }}_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U {{ db_user }} -d {{ db_name }}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -36,6 +38,9 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-{{ db_name }}}
+      DB_USER: ${DB_USER:-{{ db_user }}}
+      DB_PASSWORD: ${DB_PASSWORD:-{{ db_pass }}}
       TZ: America/La_Paz
     ports:
       - "8090:8090"

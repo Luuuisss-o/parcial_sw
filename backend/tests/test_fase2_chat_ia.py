@@ -105,10 +105,11 @@ def fake_ai(monkeypatch):
     behaviour = {"reply": "Listo, cree la clase Factura.", "error": None}
 
     def _run_command(db, diagram, user_text, requester=None, history=None, team_context=None, mode=None,
-                     solutions_enabled=False):
+                     solutions_enabled=False, proposals_enabled=False, **kw):
         calls.append({
             "text": user_text, "requester": requester, "history": list(history or []),
             "team": list(team_context or []), "solutions_enabled": solutions_enabled,
+            "proposals_enabled": proposals_enabled,
         })
         if behaviour["error"]:
             raise behaviour["error"]
@@ -279,6 +280,32 @@ def test_error_de_la_ia_queda_publico_y_dirigido(client, team, fake_ai):
         assert ev["requested_by"]["name"] == "Bruno Díaz"
 
 
+def test_borrar_el_diagrama_mientras_la_ia_responde_no_rompe(client, team, monkeypatch):
+    """El dueño borra el diagrama mientras la IA piensa: la tarea en segundo
+    plano termina sin excepcion (antes intentaba guardar el aviso de error
+    sobre una pregunta que ya no existia)."""
+    db = SessionLocal()
+    d = Diagram(title="se borra mientras responde", owner_id=team["ana"]["id"])
+    db.add(d)
+    db.commit()
+    did = str(d.id)
+
+    def _run_command(db_bg, diagram, *a, **k):
+        other = SessionLocal()
+        other.delete(other.get(Diagram, diagram.id))
+        other.commit()
+        other.close()
+        raise RuntimeError("la base rechaza escribir en un diagrama borrado")
+
+    monkeypatch.setattr(ai_assistant, "run_command", _run_command)
+    r = client.post(f"/diagrams/{did}/chat", json={"text": "creá la clase Pago", "ask_ai": True},
+                    headers=_h(team["ana"]))
+    assert r.status_code in (200, 201, 202)
+    db.expire_all()
+    assert db.get(Diagram, uuid.UUID(did)) is None
+    db.close()
+
+
 def test_endpoint_ai_command_tambien_es_publico(client, team, fake_ai):
     calls, _ = fake_ai
     did = team["diagram_id"]
@@ -318,6 +345,15 @@ def test_endpoint_ai_command_tambien_es_publico(client, team, fake_ai):
     # Ejemplo literal del docente (audio de la Fase 2):
     ("No me acuerdo qué es un atributo derivado", MODE_MENTOR),
     ("tengo una duda con la multiplicidad", MODE_MENTOR),
+    # Un verbo de edición en infinitivo dentro de una pregunta teórica no es
+    # un pedido (antes caía en modo edición y la respuesta se reemplazaba por
+    # "No apliqué ningún cambio en el diagrama...").
+    ("en que contexto se recomienda crear una base de datos no relacional?", MODE_MENTOR),
+    ("¿cuándo conviene agregar un atributo derivado?", MODE_MENTOR),
+    ("¿Cómo puedo relacionar dos clases de muchos a muchos?", MODE_MENTOR),
+    ("how to create an association class?", MODE_MENTOR),
+    ("crear la clase Factura", MODE_AUTO),
+    ("¿qué tal si creás la clase Pago?", MODE_AUTO),
 ])
 def test_classify_intent(text, mode):
     assert classify_intent(text) == mode
@@ -470,7 +506,7 @@ def test_configuracion_entrega_de_soluciones(client, team, fake_ai):
     did = team["diagram_id"]
     ana, bruno = team["ana"], team["bruno"]
 
-    assert client.get(f"/diagrams/{did}/ai/settings", headers=_h(bruno)).json() == {"solutions_enabled": False}
+    assert client.get(f"/diagrams/{did}/ai/settings", headers=_h(bruno)).json()["solutions_enabled"] is False
     # Un colaborador no puede cambiarla; un extraño ni siquiera verla.
     assert client.patch(f"/diagrams/{did}/ai/settings", json={"solutions_enabled": True},
                         headers=_h(bruno)).status_code == 403
@@ -481,9 +517,9 @@ def test_configuracion_entrega_de_soluciones(client, team, fake_ai):
 
     with _ws(client, did, bruno) as ws_bruno:
         r = client.patch(f"/diagrams/{did}/ai/settings", json={"solutions_enabled": True}, headers=_h(ana))
-        assert r.status_code == 200 and r.json() == {"solutions_enabled": True}
+        assert r.status_code == 200 and r.json()["solutions_enabled"] is True
         ev = _wait(ws_bruno, "ai.settings")
-        assert ev == {"solutions_enabled": True, "changed_by": "Ana Pérez"}
+        assert ev["solutions_enabled"] is True and ev["changed_by"] == "Ana Pérez"
 
     client.post(f"/diagrams/{did}/chat", json={"text": "@IA armame el diagrama de una veterinaria"}, headers=_h(bruno))
     assert calls[-1]["solutions_enabled"] is True
@@ -504,3 +540,269 @@ def test_prompt_segun_configuracion_y_rol_senior(team, fake_genai):
     assert "desarrollador senior y moderador" in off
     assert "Entrega de soluciones DESACTIVADA" in off and "soluciones ACTIVADA" not in off
     assert "Entrega de soluciones ACTIVADA" in on and "{solutions_rule}" not in on
+
+
+# ---------------------------------------------------------------------------
+# CU-17: proveedor de IA configurable (Gemini o modelo local OpenAI-compatible)
+# ---------------------------------------------------------------------------
+import json as _json
+
+import httpx
+
+from app.services import llm_providers
+
+
+def _fake_openai_server(monkeypatch, *, script):
+    """Reemplaza el transporte HTTP del proveedor OpenAI-compatible por un
+    servidor falso (como Ollama/LM Studio) que responde segun `script`."""
+    requests = []
+
+    def handler(request: httpx.Request):
+        body = _json.loads(request.content)
+        requests.append({"url": str(request.url), "auth": request.headers.get("authorization"), "body": body})
+        return httpx.Response(200, json={"choices": [{"message": script(body, len(requests))}]})
+
+    real_client = httpx.Client
+    monkeypatch.setattr(
+        llm_providers.httpx, "Client",
+        lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw),
+    )
+    return requests
+
+
+def test_openai_compatible_loop_de_herramientas(team, monkeypatch, client):
+    def script(body, n):
+        if n == 1:  # el modelo local pide crear la clase
+            return {"role": "assistant", "content": None, "tool_calls": [{
+                "id": "c1", "type": "function",
+                "function": {"name": "create_class", "arguments": _json.dumps({"name": "Factura"})},
+            }]}
+        tool_msg = body["messages"][-1]
+        assert tool_msg["role"] == "tool" and tool_msg["tool_call_id"] == "c1"
+        return {"role": "assistant", "content": "Ana, creé la clase Factura."}
+
+    reqs = _fake_openai_server(monkeypatch, script=script)
+    cfg = llm_providers.ProviderConfig(llm_providers.PROVIDER_OPENAI, "llama3.2", "http://localhost:11434/v1", "tok")
+    db = SessionLocal()
+    try:
+        d = db.get(Diagram, uuid.UUID(team["diagram_id"]))
+        r = ai_assistant.run_command(db, d, "creá la clase Factura", requester=Requester(1, "Ana Pérez"), provider=cfg)
+    finally:
+        db.close()
+    assert r.reply == "Ana, creé la clase Factura."
+    assert [a["tool"] for a in r.actions] == ["create_class"]
+    assert r.model_label == "llama3.2 (localhost)"
+    assert reqs[0]["url"] == "http://localhost:11434/v1/chat/completions"
+    assert reqs[0]["auth"] == "Bearer tok"
+    assert reqs[0]["body"]["model"] == "llama3.2"
+    assert reqs[0]["body"]["messages"][0]["role"] == "system"
+    assert reqs[0]["body"]["tools"][0]["type"] == "function"
+
+
+def test_openai_compatible_mentoria_sin_herramientas(team, monkeypatch, client):
+    reqs = _fake_openai_server(monkeypatch, script=lambda b, n: {"role": "assistant", "content": "Ana, es..."})
+    cfg = llm_providers.ProviderConfig(llm_providers.PROVIDER_OPENAI, "qwen2.5", "http://colab.example/v1")
+    db = SessionLocal()
+    try:
+        d = db.get(Diagram, uuid.UUID(team["diagram_id"]))
+        r = ai_assistant.run_command(db, d, "¿qué es un atributo derivado?", requester=Requester(1, "Ana Pérez"),
+                                     provider=cfg)
+    finally:
+        db.close()
+    assert r.mode == MODE_MENTOR
+    assert "tools" not in reqs[0]["body"]
+    assert reqs[0]["auth"] is None
+
+
+def test_configurar_proveedor_local_por_diagrama(client, team, monkeypatch, fake_ai):
+    did = team["diagram_id"]
+    ana, bruno = team["ana"], team["bruno"]
+    url = f"/diagrams/{did}/ai/settings"
+
+    s = client.get(url, headers=_h(bruno)).json()
+    assert s["provider"] == "gemini" and s["provider_is_default"] is True
+
+    # Faltan endpoint/modelo -> 422; un colaborador no puede -> 403; URL invalida -> 422
+    assert client.patch(url, json={"provider": "openai_compatible"}, headers=_h(ana)).status_code == 422
+    assert client.patch(url, json={"provider": "openai_compatible", "base_url": "ftp://x", "model": "m"},
+                        headers=_h(ana)).status_code == 422
+    assert client.patch(url, json={"provider": "gemini"}, headers=_h(bruno)).status_code == 403
+
+    r = client.patch(url, json={"provider": "openai_compatible", "base_url": "http://192.168.0.10:11434/v1/",
+                                "model": "llama3.2", "api_key": "secreto"}, headers=_h(ana))
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["provider"] == "openai_compatible" and out["model"] == "llama3.2"
+    assert out["base_url"] == "http://192.168.0.10:11434/v1"
+    assert out["has_api_key"] is True and "secreto" not in r.text  # el token nunca vuelve
+
+    # Las consultas del chat usan el proveedor del diagrama y la respuesta dice que modelo fue
+    calls, _ = fake_ai
+    used = []
+    real = ai_assistant.run_command
+    monkeypatch.setattr(ai_assistant, "run_command", lambda db, diagram, *a, **k: (
+        used.append(llm_providers.config_for(diagram)), real(db, diagram, *a, **k))[1])
+    client.post(f"/diagrams/{did}/chat", json={"text": "@IA hola"}, headers=_h(bruno))
+    assert used[0].kind == "openai_compatible" and used[0].api_key == "secreto"
+
+    # Volver al proveedor por defecto borra endpoint, modelo y token
+    out = client.patch(url, json={"provider": "default"}, headers=_h(ana)).json()
+    assert out["provider_is_default"] is True and out["has_api_key"] is False and out["base_url"] is None
+
+
+def test_probar_conexion_reporta_error_claro(client, team):
+    did = team["diagram_id"]
+    client.patch(f"/diagrams/{did}/ai/settings", json={"provider": "openai_compatible",
+                 "base_url": "http://127.0.0.1:9/v1", "model": "llama3.2"}, headers=_h(team["ana"]))
+    r = client.post(f"/diagrams/{did}/ai/settings/test", headers=_h(team["ana"])).json()
+    assert r["ok"] is False and "No se pudo conectar" in r["detail"]
+    assert client.post(f"/diagrams/{did}/ai/settings/test", headers=_h(team["bruno"])).status_code == 403
+
+
+def test_si_el_modelo_inventa_cambios_se_le_exige_usar_herramientas(team, monkeypatch, client):
+    """Visto con Gemini real via la capa OpenAI-compatible: respondio "creé la
+    clase Factura" sin llamar a ninguna herramienta (el diagrama no cambio)."""
+    def script(body, n):
+        if n == 1:
+            assert "tool_choice" not in body
+            return {"role": "assistant", "content": "Ana, ya creé la clase Factura."}  # mentira
+        if n == 2:
+            assert body["tool_choice"] == "required"
+            assert "No ejecutaste ninguna herramienta" in body["messages"][-1]["content"]
+            return {"role": "assistant", "content": None, "tool_calls": [{
+                "id": "c1", "type": "function",
+                "function": {"name": "create_class", "arguments": '{"name": "Factura"}'}}]}
+        return {"role": "assistant", "content": "Ana, creé la clase Factura."}
+
+    _fake_openai_server(monkeypatch, script=script)
+    cfg = llm_providers.ProviderConfig(llm_providers.PROVIDER_OPENAI, "llama3.2", "http://localhost:11434/v1")
+    db = SessionLocal()
+    try:
+        d = db.get(Diagram, uuid.UUID(team["diagram_id"]))
+        r = ai_assistant.run_command(db, d, "creá la clase Factura", requester=Requester(1, "Ana Pérez"), provider=cfg)
+        nombres = [c["nombre"] for c in ai_assistant.DiagramToolExecutor(db, d).snapshot()["clases"]]
+    finally:
+        db.close()
+    assert [a["tool"] for a in r.actions] == ["create_class"]
+    assert "Factura" in nombres
+
+
+# ---------------------------------------------------------------------------
+# Modelo personalizado que corre en el CELULAR: alojamiento y respuestas
+# generadas en el dispositivo
+# ---------------------------------------------------------------------------
+import hashlib
+
+from app.models.user import Role
+
+
+@pytest.fixture()
+def models_dir(tmp_path, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "MODELS_DIR", str(tmp_path / "models"))
+    return tmp_path / "models"
+
+
+@pytest.fixture()
+def admin(team):
+    db = SessionLocal()
+    u = db.get(User, team["ana"]["id"])
+    u.role = Role.admin
+    db.commit()
+    db.close()
+    return team["ana"]
+
+
+def test_alojar_y_descargar_modelo_personalizado(client, team, admin, models_dir):
+    fake_gguf = b"GGUF" + bytes(range(256)) * 400
+    h = _h(admin)
+    assert client.get("/models/assistant", headers=h).json() == {
+        "available": False, "version": None, "sha256": None, "size_bytes": None, "base_model": None,
+        "notes": None, "uploaded_at": None, "uploaded_by": None, "download_path": None}
+
+    # Un colaborador comun no puede publicar; un archivo que no es GGUF se rechaza
+    files = {"file": ("m.gguf", fake_gguf, "application/octet-stream")}
+    assert client.put("/models/assistant", files=files, data={"version": "1"}, headers=_h(team["bruno"])).status_code == 403
+    bad = {"file": ("m.gguf", b"PK\x03\x04zip", "application/octet-stream")}
+    assert client.put("/models/assistant", files=bad, data={"version": "1"}, headers=h).status_code == 422
+    assert client.put("/models/assistant", files=files, data={"version": "a b"}, headers=h).status_code == 422
+
+    r = client.put("/models/assistant", files=files,
+                   data={"version": "2026.11.08-1", "base_model": "google/gemma-3-1b-it"}, headers=h)
+    assert r.status_code == 200, r.text
+    m = r.json()
+    assert m["available"] and m["sha256"] == hashlib.sha256(fake_gguf).hexdigest()
+    assert m["size_bytes"] == len(fake_gguf) and m["download_path"] == "/models/assistant/download"
+
+    # Cualquier usuario logueado lo descarga; soporta reanudar con Range
+    full = client.get("/models/assistant/download", headers=_h(team["bruno"]))
+    assert full.status_code == 200 and full.content == fake_gguf
+    part = client.get("/models/assistant/download", headers={**_h(team["bruno"]), "Range": "bytes=100-"})
+    assert part.status_code == 206 and part.content == fake_gguf[100:]
+    assert client.get("/models/assistant/download").status_code in (401, 403)
+
+
+def test_consulta_respondida_por_el_modelo_del_celular(client, team, fake_ai):
+    calls, behaviour = fake_ai
+    did = team["diagram_id"]
+    ana, bruno = team["ana"], team["bruno"]
+    # Historial previo de Bruno con la IA (del servidor) + un mensaje de Ana al equipo
+    behaviour["reply"] = "Bruno, una clase abstracta es..."
+    client.post(f"/diagrams/{did}/chat", json={"text": "@IA qué es una clase abstracta?"}, headers=_h(bruno))
+    client.post(f"/diagrams/{did}/chat", json={"text": "usemos herencia para Persona"}, headers=_h(ana))
+    n_calls = len(calls)
+
+    with _ws(client, did, ana) as ws_ana:
+        q = client.post(f"/diagrams/{did}/chat",
+                        json={"text": "@IA no me acuerdo qué es un atributo derivado", "answer_on_device": True},
+                        headers=_h(bruno)).json()
+        assert len(calls) == n_calls  # el servidor NO llamo a ningun modelo
+        started = _wait(ws_ana, "ai.started", lambda d: d["request_id"] == q["id"])
+        assert started["on_device"] is True and started["requested_by"]["name"] == "Bruno Díaz"
+
+        # El celular pide el contexto (misma memoria hibrida que el servidor)
+        assert client.get(f"/diagrams/{did}/chat/{q['id']}/context", headers=_h(ana)).status_code == 403
+        ctx = client.get(f"/diagrams/{did}/chat/{q['id']}/context", headers=_h(bruno)).json()
+        assert ctx["question"] == "no me acuerdo qué es un atributo derivado"
+        assert ctx["requester_name"] == "Bruno Díaz" and ctx["mode"] == "MENTOR"
+        assert ctx["history"] == [{"question": "qué es una clase abstracta?", "answer": "Bruno, una clase abstracta es..."}]
+        assert {"author": "Ana Pérez", "content": "usemos herencia para Persona", "is_ai": False,
+                "addressed_to": None} in ctx["team_context"]
+        assert "clases" in ctx["diagram"] and ctx["solutions_enabled"] is False
+
+        # Solo el autor publica la respuesta de su modelo local
+        body = {"content": "un atributo derivado se calcula a partir de otros.", "ai_mode": "MENTOR",
+                "model_label": "Gemma 3 1B UML (móvil)"}
+        assert client.post(f"/diagrams/{did}/chat/{q['id']}/answer", json=body, headers=_h(ana)).status_code == 403
+        r = client.post(f"/diagrams/{did}/chat/{q['id']}/answer", json=body, headers=_h(bruno))
+        assert r.status_code == 201, r.text
+        a = _wait(ws_ana, "chat.message", lambda d: d["role"] == "ASSISTANT" and d["reply_to_id"] == q["id"])
+        assert a["content"].startswith("Bruno,")  # dirigida por nombre aunque el modelo chico lo olvide
+        assert a["addressed_to_name"] == "Bruno Díaz" and a["ai_model_label"] == "Gemma 3 1B UML (móvil)"
+        assert a["ai_mode"] == "MENTOR"
+        _wait(ws_ana, "ai.done", lambda d: d["request_id"] == q["id"])
+
+    assert client.post(f"/diagrams/{did}/chat/{q['id']}/answer", json=body, headers=_h(bruno)).status_code == 409
+
+
+def test_error_del_modelo_del_celular_queda_publico(client, team):
+    did = team["diagram_id"]
+    q = client.post(f"/diagrams/{did}/chat", json={"text": "@IA creá Pago", "answer_on_device": True},
+                    headers=_h(team["bruno"])).json()
+    r = client.post(f"/diagrams/{did}/chat/{q['id']}/answer",
+                    json={"error": "El modelo local no está descargado.", "model_label": "Gemma (móvil)"},
+                    headers=_h(team["bruno"]))
+    assert r.status_code == 201 and r.json()["role"] == "ERROR"
+    assert r.json()["content"] == "Bruno, El modelo local no está descargado."
+
+
+def test_clases_creadas_sin_coordenadas_no_se_superponen(client, team):
+    """La app movil crea clases sin posicion: antes quedaban todas en (0, 0)."""
+    did = team["diagram_id"]
+    h = _h(team["ana"])
+    pos = [client.post(f"/diagrams/{did}/classes", json={"name": n}, headers=h).json() for n in ("A", "B", "C")]
+    coords = {(c["x_grid"], c["y_grid"]) for c in pos}
+    assert len(coords) == 3
+    # Con coordenadas explicitas (la web) se respetan tal cual, aunque sean (0, 0).
+    c = client.post(f"/diagrams/{did}/classes", json={"name": "D", "x_grid": 0, "y_grid": 0}, headers=h).json()
+    assert (c["x_grid"], c["y_grid"]) == (0, 0)

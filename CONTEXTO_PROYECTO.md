@@ -1,6 +1,6 @@
 # Contexto del proyecto — parcial_sw
 
-> Documento para que una sesión nueva de Claude Code (u otro asistente) entienda el proyecto sin depender del historial de conversaciones previas. Todo lo escrito acá está verificado contra el código real al momento de escribirlo. Donde no se pudo confirmar algo con evidencia, se indica explícitamente en vez de asumir.
+> Documento para que una sesión nueva de Claude Code (u otro asistente) entienda el proyecto sin depender del historial de conversaciones previas. El estado verificado de cada caso de uso del primer parcial (CU-01…CU-09), con sus pruebas, está en `docs/estado-1p.md`. Todo lo escrito acá está verificado contra el código real al momento de escribirlo. Donde no se pudo confirmar algo con evidencia, se indica explícitamente en vez de asumir.
 
 ## 1. Objetivo del proyecto
 
@@ -115,6 +115,7 @@ FastAPI con capas: `routers/` (HTTP) → `services/`/lógica inline en el router
 | `relacion.py` | `/diagrams` | `POST /diagrams/{id}/relations`, `GET /diagrams/{id}/relations`, `PATCH/DELETE/GET /diagrams/relations/{relation_id}` |
 | `export.py` | `/diagrams` | `POST /diagrams/{id}/export-download` (dispara el pipeline de `exporters/`, ver sección 9) |
 | `ai.py` | `/diagrams` | `GET/PATCH /diagrams/{id}/ai/settings` (Fase 2: entrega de soluciones, PATCH solo dueño), `POST /diagrams/{id}/ai/command` (asíncrono, `202 Accepted`, usa `BackgroundTasks`). Desde la Fase 2 registra la consulta en el chat del diagrama (es pública) y devuelve `request_id` |
+| `models.py` | `/models` | `GET /models/assistant` (manifiesto), `GET /models/assistant/download` (GGUF, soporta Range), `PUT /models/assistant` (solo admin) — modelo personalizado que corre en el celular |
 | `chat.py` | `/diagrams` | `GET /diagrams/{id}/chat?limit=&before_seq=` (historial), `POST /diagrams/{id}/chat` `{text, ask_ai}` (Fase 2: chat grupal + consultas a la IA con `@IA`) |
 | `xmi.py` | `/diagrams` | `GET /diagrams/{id}/export-xmi`, `POST /diagrams/{id}/import-xmi` |
 | `vision.py` | `/vision` | `POST /vision/detect` (sube foto, Gemini transcribe, no crea nada), `POST /vision/apply` (crea el diagrama con lo ya revisado por el usuario) |
@@ -181,11 +182,12 @@ No hay TypeScript ni interfaces formales — los datos se mapean con funciones h
 ## 7. Mobile
 
 ### Estado real (importante)
-- **Nunca se compiló.** No existe `mobile/android/`, no existe `mobile/ios/`, no hay `pubspec.lock`, no hay carpeta `build/`.
-- `mobile/README.md` documenta explícitamente los pasos pendientes: instalar Java 17 + Android SDK + Flutter, correr `flutter create --platforms=android` para generar la carpeta `android/`, ajustar permisos de micrófono y `minSdk=24`, y recién ahí poder compilar.
-- Todo `mobile/` está sin trackear en git (`git status` lo muestra como untracked completo).
+- **Compilada y probada en un teléfono físico** (Samsung A34, Android 16) el 8/11/2026. `mobile/android/` está versionado (no correr `flutter create`), `minSdk = 30` (lo exige `vosk_flutter_2`).
+- Se compila con `flutter build apk --release --split-per-abi --dart-define=API_BASE_URL=https://uml-equipo.duckdns.org/api` (ver `mobile/README.md`).
+- Arranca en el login del diagramador; después del login, un selector ofrece "Diseñar diagramas" (chat del equipo + IA en el celular) o "Usar un sistema generado" (protocolo UAP).
+- La IA local es Gemma 3 1B ajustado con LoRA (`training/`): el celular lo descarga del servidor (~0,8 GB) y lo verifica por SHA-256; no va empaquetado en el APK.
 
-### Arquitectura (según el código escrito, sin verificar en ejecución)
+### Arquitectura
 14 archivos `.dart` en `mobile/lib/`. Estado global con `ChangeNotifier` (`app_state.dart`), sin un framework de estado más complejo.
 
 ### Pantallas (`mobile/lib/screens/`)
@@ -233,6 +235,7 @@ REST vía `api_client.dart` + WebSocket vía `realtime_service.dart`, ambos apun
 5. `b7d3f1a2c9e4_add_chat_message.py` — (Fase 2) crea la tabla `chat_message`.
 6. `c4e8a7d5b1f2_add_ai_mode_to_chat_message.py` — (Fase 2) agrega `chat_message.ai_mode` (`MENTOR`/`AUTO`).
 7. `d2f6b8c3a7e1_add_ai_solutions_enabled_to_diagram.py` — (Fase 2) agrega `diagram.ai_solutions_enabled`.
+8. `e5a9c1d4f8b3_add_ai_provider_to_diagram.py` — (Fase 2) proveedor de IA por diagrama + `chat_message.ai_model_label`.
 
 **Nombre de la base** (diagramador): `parcial_sw` (default de `POSTGRES_DB` en `docker-compose.yml`, configurable por variable de entorno `DB_NAME`).
 
@@ -267,7 +270,9 @@ Usuario → frontend (React) → PATCH/POST /diagrams/... → backend → Postgr
 
 **Rol de mentoría y memoria híbrida (Fase 2, prioridad media)**: el prompt de `ai_assistant.py` define dos roles: mentor de diseño de software (dudas teóricas: UML, patrones, requerimientos…) y ejecutor de ediciones. `classify_intent()` detecta de forma determinista las consultas claramente teóricas sin verbos de edición y las responde en modo `MENTOR`: el modelo se llama **sin herramientas**, así que no puede modificar el diagrama; la respuesta queda con `ai_mode="MENTOR"` y el chat la marca como "Mentoría". Ante la duda se usa `AUTO` (el modelo puede explicar y/o editar). El prompt lleva tres niveles de contexto: `[Contexto global]` estado del diagrama + conversación reciente del equipo (`chat_service.team_context`, últimos 12 mensajes, sin el ida y vuelta propio de quien pregunta) y `[Hilo individual]` consultas previas de esa persona (`user_ai_history`). Las respuestas de la IA se muestran con un renderizador mínimo de markdown (`components/common/ChatMarkdown.jsx`, sin HTML crudo).
 
-**Ubicación de clases creadas por la IA**: `DiagramToolExecutor.create_class` toma las coordenadas del modelo solo como sugerencia; si faltan o se superponen con otra clase, usa `_free_slot()` (grilla de 4 columnas). Antes todas quedaban en (0,0), o donde Gemini las ponía, una encima de otra.
+**Proveedor de IA y modelo en el celular (Fase 2, CU-17)**: el asistente del servidor usa `services/llm_providers.py` (Gemini o cualquier API compatible con OpenAI: Ollama, LM Studio, vLLM/llama.cpp en Colab), configurable por diagrama por su dueño (`diagram.ai_provider/ai_base_url/ai_model/ai_api_key`; el token nunca se devuelve). Cada respuesta guarda `chat_message.ai_model_label`. Además, la app móvil puede responder las consultas `@IA` de su usuario con un **modelo personalizado que corre en el teléfono**: se entrena en Colab (`training/finetune_colab.ipynb`, dataset de `training/build_dataset.py`), el backend solo lo aloja (`PUT/GET /models/assistant`, `MODELS_DIR`), y el celular usa `GET /diagrams/{id}/chat/{q}/context` + `POST .../answer` (pregunta enviada con `answer_on_device`). El prompt del modelo vive solo en `mobile/lib/services/assistant_prompt.dart`. Ver `training/README.md`.
+
+**Ubicación de clases creadas por la IA**: `DiagramToolExecutor.create_class` toma las coordenadas del modelo solo como sugerencia; si faltan o se superponen con otra clase, usa `_free_slot()` (grilla de 4 columnas). Antes todas quedaban en (0,0), o donde Gemini las ponía, una encima de otra. `POST /diagrams/{id}/classes` sin coordenadas (la app móvil) usa el mismo hueco libre.
 
 **Flujo de importar foto**: `POST /vision/detect` (sube imagen, Gemini Vision la transcribe a JSON, no se guarda nada aún) → usuario revisa/corrige en el frontend → `POST /vision/apply` (crea el diagrama real con lo confirmado).
 
@@ -286,8 +291,7 @@ Confirmado funcionando (probado en esta sesión con Docker real, no solo revisi�
 
 ## 11. Funcionalidades en desarrollo
 
-- **App móvil Flutter**: todo el código está escrito (14 archivos `.dart`), pero nunca se compiló ni se corrió. Falta: instalar Android SDK y generar la carpeta `android/` (`flutter create`), correr `flutter pub get`, y probar en un dispositivo real. La API exacta del método `generate()` del paquete `llamadart` no está confirmada al 100% contra el código real (puede necesitar ajustes al compilar por primera vez, según nota dejada en el propio código).
-- El `docker-compose.yml` de la raíz del proyecto (diagramador) todavía no está commiteado a git (aparece como untracked).
+- Validar el XMI exportado en Enterprise Architect (ver `docs/estado-1p.md`, CU-06).
 
 ## 12. Decisiones importantes (no cambiar sin razón clara)
 
@@ -303,8 +307,6 @@ Confirmado funcionando (probado en esta sesión con Docker real, no solo revisi�
 - **No hay endpoint de registro de usuarios activo** (`sign-up`), pese a que el schema existe. Los usuarios deben crearse por otro medio (seed, acceso directo a la base, o un endpoint no confirmado en este audit).
 - **No hay refresh token implementado**, pese a que `REFRESH_EXPIRE_DAYS` está en la configuración. La sesión expira cuando expira el access token (`ACCESS_EXPIRE_MIN`, default 480 minutos) y el usuario debe volver a loguearse.
 - **Inconsistencia de nombres de campo español/inglés entre endpoints** (ver sección 12) — no es un bug per se, pero es una fuente real de errores si se agrega código nuevo sin verificar el shape exacto de cada endpoint primero.
-- **App móvil sin compilar**: no se puede afirmar que el código Dart funcione hasta que se compile por primera vez. La integración con `llamadart` en particular tiene riesgo de necesitar ajustes.
-- **Mobile no está commiteado a git** — cualquier trabajo ahí corre riesgo de perderse si no se agrega al repo.
 
 ## 14. Reglas para futuras sesiones
 
@@ -318,18 +320,8 @@ Confirmado funcionando (probado en esta sesión con Docker real, no solo revisi�
 
 ## 15. Estado actual
 
-Al momento de escribir este documento:
-- El diagramador (backend + frontend + Postgres) corre en Docker y fue verificado funcionando de punta a punta: login, CRUD de diagramas/clases/relaciones, colaboración en tiempo real, asistente de IA, importar foto, exportar/importar XMI.
-- El generador de backend Spring Boot fue verificado de punta a punta con un caso real (diagrama de 7 clases importado desde una foto): compila con Maven, levanta con Docker, Hibernate crea las tablas, responde CRUD real.
-- Se hizo una limpieza de código muerto en backend, frontend y exporters (archivos completos sin uso y bloques de código comentado), verificando después de cada cambio que backend y frontend siguieran reconstruyendo y respondiendo bien en Docker.
-- La app móvil Flutter tiene todo su código fuente escrito pero nunca se compiló. El usuario instaló Flutter recién en esta sesión (confirmado en el PATH de Windows); todavía falta generar la carpeta `android/` y compilar por primera vez.
-- Working tree con cambios sin commitear (ver lista completa en el reporte de auditoría de esta sesión, o correr `git status`): principalmente los archivos tocados durante la limpieza de código muerto, y todo `mobile/`, que nunca se agregó a git.
+Segundo parcial (asesor IA del equipo, propuestas de cambios aplicables): `docs/estado-2p.md`. Primer parcial: ver `docs/estado-1p.md` (auditoría del 9/11/2026): CU-01…CU-09 verificados con pruebas ejecutadas; la única validación pendiente es abrir el XMI en Enterprise Architect. Producción: `https://uml-equipo.duckdns.org` (EC2, `docs/DESPLIEGUE.md`).
 
 ## 16. Próximos pasos
 
-En orden lógico sugerido:
-1. Compilar la app móvil por primera vez: generar `mobile/android/` con `flutter create --platforms=android`, correr `flutter pub get`, resolver cualquier error de compilación que surja (especialmente en la integración con `llamadart`, marcada como no confirmada al 100%).
-2. Probar la app móvil en un dispositivo físico real, incluyendo la descarga de los modelos de IA (LLM + Vosk) la primera vez que se abre el asistente.
-3. Confirmar si hace falta un endpoint de registro de usuarios para el examen, o si los usuarios se crean siempre por otro medio (seed/acceso directo a la base).
-4. Decidir si conviene implementar refresh token o si el tiempo de expiración actual (8 horas) es suficiente para el examen.
-5. Commitear a git el `docker-compose.yml` de la raíz y todo `mobile/`, que hoy están sin trackear.
+Ver la sección "Pendientes" de `docs/estado-1p.md`.
