@@ -9,17 +9,12 @@
 // El asterisco marca los campos obligatorios (NOT NULL en la base de datos
 // generada); no es notación UML, es un dato propio del generador.
 
-const seccion = {
-  margin: "0 0 4px",
-  fontSize: 10,
-  fontWeight: 600,
-  letterSpacing: "0.05em",
-  textTransform: "uppercase",
-  color: "var(--text-subtle)",
-};
+// Aspecto sobrio tipo Enterprise Architect: los compartimentos no llevan
+// rótulo ("Atributos"/"Métodos"); se separan con una línea fina.
+const seccion = { borderTop: "1px solid var(--uml-class-border)", margin: "4px -8px 0", padding: "4px 8px 0" };
 
 const item = {
-  margin: "2px 0",
+  margin: "1px 0",
   whiteSpace: "nowrap",
   overflow: "hidden",
   textOverflow: "ellipsis",
@@ -31,7 +26,7 @@ const lista = { margin: "0 0 10px", padding: 0 };
 const vis = {
   display: "inline-block",
   width: 12,
-  color: "var(--text-subtle)",
+  color: "var(--uml-class-muted)",
   fontFamily: "var(--font-mono)",
 };
 
@@ -56,15 +51,13 @@ function formatMethod(m) {
 export default function Body({ innerRef, showDetails, details, size, kind = "class" }) {
   if (!showDetails) {
     return (
-      <div ref={innerRef} className="text-subtle" style={{ padding: 10, fontSize: 11 }}>
-        {size.w}×{size.h} celdas
-      </div>
+      <div ref={innerRef} title={`${size.w}×${size.h} celdas`} style={{ minHeight: 12 }} />
     );
   }
 
   if (!details) {
     return (
-      <div ref={innerRef} className="text-muted" style={{ padding: 10, fontSize: 12 }}>
+      <div ref={innerRef} style={{ padding: "4px 8px", fontSize: 11, color: "var(--uml-class-muted)" }}>
         Cargando…
       </div>
     );
@@ -73,12 +66,9 @@ export default function Body({ innerRef, showDetails, details, size, kind = "cla
   const esEnum = kind === "enumeration";
 
   return (
-    <div ref={innerRef} style={{ padding: 10, fontSize: 12, lineHeight: 1.4, overflow: "hidden" }}>
-      <div style={seccion}>{esEnum ? "Literales" : "Atributos"}</div>
+    <div ref={innerRef} style={{ padding: "4px 8px 6px", fontSize: 12, lineHeight: 1.35, overflow: "hidden" }}>
       {details.attrs.length === 0 ? (
-        <div className="text-subtle" style={{ marginBottom: 8 }}>
-          {esEnum ? "Sin literales" : "Sin atributos"}
-        </div>
+        <div style={{ minHeight: 10 }} title={esEnum ? "Sin literales" : "Sin atributos"} />
       ) : (
         <ul style={{ ...lista, margin: 0 }}>
           {details.attrs.map((a) =>
@@ -91,7 +81,7 @@ export default function Body({ innerRef, showDetails, details, size, kind = "cla
                   {formatAttribute(a)}
                 </span>
                 {a.required ? (
-                  <span style={{ color: "var(--warning)", marginLeft: 4 }} title="Obligatorio (NOT NULL)">
+                  <span style={{ color: "var(--uml-class-muted)", marginLeft: 4 }} title="Obligatorio (NOT NULL)">
                     *
                   </span>
                 ) : null}
@@ -104,10 +94,8 @@ export default function Body({ innerRef, showDetails, details, size, kind = "cla
       {/* En una enumeración el compartimento de métodos se omite si está vacío. */}
       {SHOW_METHODS && !(esEnum && details.meths.length === 0) && (
         <>
-          <div style={seccion}>Métodos</div>
-          {details.meths.length === 0 ? (
-            <div className="text-subtle">Sin métodos</div>
-          ) : (
+          <div style={seccion} />
+          {details.meths.length === 0 ? null : (
             <ul style={{ ...lista, margin: 0 }}>
               {details.meths.map((m) => (
                 <li key={m.id} style={item} data-testid="uml-method">

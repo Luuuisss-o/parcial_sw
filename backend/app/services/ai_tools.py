@@ -233,7 +233,7 @@ class DiagramToolExecutor:
     # usa la importación XMI. Así el contrato con el modelo entrenado no cambia.
     @_serialized
     def create_class(self, name: str, x_grid: Optional[int] = None, y_grid: Optional[int] = None,
-                     kind: str = "class") -> dict:
+                     kind: str = "class", keep_position: bool = False) -> dict:
         existing = (
             self.db.query(Clase)
             .filter(Clase.diagram_id == self.diagram.id)
@@ -247,7 +247,10 @@ class DiagramToolExecutor:
         # faltan o caen encima de otra clase (Gemini suele mandar posiciones
         # chicas como (1,1) y (3,1) para clases distintas), se busca un lugar
         # libre en la grilla.
-        if x_grid is None or y_grid is None or self._overlaps(x_grid, y_grid):
+        # keep_position: la importación (foto/XMI) ya calculó un acomodo por
+        # niveles con el alto real de cada tarjeta; el chequeo de abajo usa un
+        # alto fijo y lo desarmaría.
+        if x_grid is None or y_grid is None or (not keep_position and self._overlaps(x_grid, y_grid)):
             x_grid, y_grid = self._free_slot()
         c = Clase(
             nombre=name.strip(),
@@ -441,7 +444,12 @@ class DiagramToolExecutor:
         dst_role: Optional[str] = None,
         src_navigable: bool = False,
         dst_navigable: bool = False,
+        src_anchor: Optional[str] = None,
+        dst_anchor: Optional[str] = None,
     ) -> dict:
+        # src_anchor/dst_anchor: lado de la tarjeta donde arranca/termina la
+        # línea. Solo lo usan los imports (foto/XMI), que conocen el acomodo;
+        # no forman parte del esquema de herramientas de la IA.
         src = self._find_class(from_class)
         dst = self._find_class(to_class)
         try:
@@ -475,6 +483,11 @@ class DiagramToolExecutor:
             navegable_origen=bool(src_navigable),
             navegable_destino=bool(dst_navigable),
         )
+        sides = ("top", "bottom", "left", "right")
+        if src_anchor in sides:
+            r.src_anchor = src_anchor
+        if dst_anchor in sides:
+            r.dst_anchor = dst_anchor
         self.db.add(r)
         self.db.commit()
         self.db.refresh(r)

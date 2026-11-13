@@ -21,10 +21,9 @@ function cornerStyle(dir) {
   return {
     position: "absolute",
     ...CORNER_POS[dir],
-    width: 10, height: 10,
-    borderRadius: "50%",
-    background: "var(--accent)",
-    border: "1px solid var(--surface-1)",
+    width: 7, height: 7,
+    background: "var(--uml-class-select)",
+    border: "1px solid var(--uml-class-bg)",
     cursor: CORNER_CURSOR[dir],
     zIndex: 2,
   };
@@ -151,17 +150,18 @@ export default function ClassCard({
         style={{
           position: "absolute",
           inset: 0,
-          background: "var(--surface-1)",
+          // Estilo sobrio tipo Enterprise Architect: caja cuadrada, borde
+          // gris fino y sombra plana. Seleccionada: borde azul apagado;
+          // bloqueada por otro: borde de advertencia.
+          background: "var(--uml-class-bg)",
           border: lockedByOther
             ? "2px solid var(--warning)"
-            : selected ? "2px solid var(--accent)" : "1px solid var(--border-strong)",
-          borderRadius: "var(--radius)",
-          color: "var(--text)",
-          boxShadow: lockedByOther
-            ? "0 0 0 3px var(--warning-soft), var(--shadow)"
-            : selected ? "0 0 0 3px var(--accent-soft), var(--shadow)" : "var(--shadow-sm)",
+            : selected ? "2px solid var(--uml-class-select)" : "1px solid var(--uml-class-border)",
+          borderRadius: 0,
+          color: "var(--uml-class-text)",
+          boxShadow: "var(--uml-class-shadow)",
           overflow: "hidden",
-          transition: "box-shadow .15s, border-color .15s, background .15s",
+          transition: "border-color .15s",
         }}
       >
         <Header
@@ -174,6 +174,7 @@ export default function ClassCard({
           showCounts={showCounts}
           counts={counts}
           lockedByOther={lockedByOther}
+          hover={hover || selected}
         />
 
         <Body

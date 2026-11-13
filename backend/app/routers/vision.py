@@ -21,7 +21,8 @@ from app.models.uml import Diagram
 from app.models.user import User
 from app.schemas.vision import VisionApplyIn, VisionApplySummary, VisionDetectResult
 from app.services.ai_assistant import describe_error
-from app.services.ai_tools import DiagramToolExecutor, ToolError, estimate_h_grid, grid_positions
+from app.services.ai_tools import DiagramToolExecutor, ToolError
+from app.services.layout import anchor_sides, estimate_rows, layered_positions
 from app.services.diagram_vision import detect_from_image
 
 logger = logging.getLogger(__name__)
@@ -90,16 +91,18 @@ def apply(
     executor = DiagramToolExecutor(db, diagram, actor_email=me.email)
     summary = VisionApplySummary(diagram_id=str(diagram.id))
 
-    # Posiciones en grilla de 3 columnas (como el import de XMI): un diagrama
-    # de base de datos suele traer varias tablas y en una sola fila quedaban
-    # fuera de la pantalla. El usuario las reacomoda a gusto después.
-    # La fila siguiente empieza debajo de la tarjeta más alta de la anterior
-    # (alto estimado por la cantidad de atributos y métodos).
-    positions = grid_positions([estimate_h_grid(len(c.attributes), len(c.methods)) for c in body.classes])
-    for idx, c in enumerate(body.classes):
-        x_grid, y_grid = positions[idx]
+    # Acomodo por niveles según las relaciones (padre/interfaz/todo arriba,
+    # sus hijas/partes abajo), ver services/layout.py.
+    heights = {c.name: estimate_rows(len(c.attributes)) for c in body.classes}
+    positions = layered_positions(
+        [c.name for c in body.classes],
+        [(r.from_class, r.to_class) for r in body.relations if r.type != "DEPENDENCY"],
+        heights,
+    )
+    for c in body.classes:
+        x_grid, y_grid = positions[c.name]
         try:
-            executor.create_class(name=c.name, x_grid=x_grid, y_grid=y_grid, kind=c.kind)
+            executor.create_class(name=c.name, x_grid=x_grid, y_grid=y_grid, kind=c.kind, keep_position=True)
             summary.classes_created.append(c.name)
         except ToolError as e:
             summary.warnings.append(str(e))
@@ -128,6 +131,10 @@ def apply(
                 summary.warnings.append(str(e))
 
     for r in body.relations:
+        sides = (None, None)
+        if r.from_class in positions and r.to_class in positions:
+            sides = anchor_sides(positions[r.from_class], positions[r.to_class],
+                                 heights[r.from_class], heights[r.to_class])
         try:
             executor.create_relation(
                 from_class=r.from_class,
@@ -140,6 +147,8 @@ def apply(
                 dst_role=r.dst_role,
                 src_navigable=r.src_navigable,
                 dst_navigable=r.dst_navigable,
+                src_anchor=sides[0],
+                dst_anchor=sides[1],
             )
             summary.relations_created += 1
         except ToolError as e:

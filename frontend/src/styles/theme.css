@@ -13,6 +13,17 @@
      negro no se vería sobre el lienzo). */
   --relation-line: #e8efec;
 
+  /* Tarjetas de clase: tono sobrio estilo Enterprise Architect (caja
+     cuadrada, borde gris fino, encabezado apenas más oscuro, sin acentos de
+     marca). La selección usa un azul apagado, como EA. */
+  --uml-class-bg: #1b2321;
+  --uml-class-header-bg: #222c2a;
+  --uml-class-border: #7d8986;
+  --uml-class-text: #e4e8e7;
+  --uml-class-muted: #9aa5a2;
+  --uml-class-select: #7fa7d1;
+  --uml-class-shadow: 2px 2px 0 rgba(0, 0, 0, 0.35);
+
   /* Alias heredados */
   --surface: var(--surface-1);
   --panel-bg: var(--surface-1);
@@ -23,6 +34,14 @@
   --canvas-bg: #fffdf8;
   --canvas-grid: #ece4d3;
   --relation-line: #000000;
+
+  --uml-class-bg: #fcfcfa;
+  --uml-class-header-bg: #ededea;
+  --uml-class-border: #555555;
+  --uml-class-text: #1b1b1b;
+  --uml-class-muted: #6a6a6a;
+  --uml-class-select: #2f5f8f;
+  --uml-class-shadow: 2px 2px 0 rgba(0, 0, 0, 0.12);
 }
 
 html,

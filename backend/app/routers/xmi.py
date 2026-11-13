@@ -22,7 +22,8 @@ from app.core.security import get_current_user
 from app.models.uml import Clase, Relacion
 from app.models.user import User
 from app.schemas.xmi import XmiImportSummary
-from app.services.ai_tools import DiagramToolExecutor, ToolError, estimate_h_grid, grid_positions
+from app.services.ai_tools import DiagramToolExecutor, ToolError
+from app.services.layout import anchor_sides, estimate_rows, layered_positions
 from app.services.xmi import build_xmi, parse_xmi
 from ._helpers import get_my_diagram
 
@@ -81,18 +82,23 @@ async def import_xmi(
     # --- Clases + atributos ---
     # Sin esto, create_class() usa x_grid=y_grid=0 para todas: las clases
     # importadas quedan apiladas exactamente una sobre otra y el usuario
-    # tiene que reacomodarlas a mano antes de poder ver el diagrama. Una
-    # grilla simple (3 columnas, celdas generosas para que quepan clases
-    # con varios atributos) alcanza para que el resultado sea usable de
-    # entrada; el usuario siempre puede reacomodar despues.
-    positions = grid_positions([estimate_h_grid(len(ic.attributes), len(ic.methods)) for ic in parsed.classes])
-    for idx, ic in enumerate(parsed.classes):
+    # tiene que reacomodarlas a mano antes de poder ver el diagrama. Se usa
+    # un acomodo por niveles según las relaciones (padres arriba, hijas y
+    # partes debajo), ver services/layout.py.
+    heights = {ic.name: estimate_rows(len(ic.attributes)) for ic in parsed.classes}
+    positions = layered_positions(
+        [ic.name for ic in parsed.classes],
+        [(r.from_name, r.to_name) for r in parsed.relations if r.type != "DEPENDENCY"],
+        heights,
+    )
+    for ic in parsed.classes:
         try:
             executor.create_class(
                 name=ic.name,
                 kind=ic.kind,
-                x_grid=positions[idx][0],
-                y_grid=positions[idx][1],
+                x_grid=positions[ic.name][0],
+                y_grid=positions[ic.name][1],
+                keep_position=True,
             )
             summary.classes_created.append(ic.name)
         except ToolError:
@@ -137,6 +143,12 @@ async def import_xmi(
         if key in existentes:
             summary.relations_skipped += 1
             continue
+        # Lados de la línea según el acomodo, solo si las dos clases se
+        # ubicaron ahora (las que ya estaban en el diagrama no se movieron).
+        sides = (None, None)
+        if ir.from_name in summary.classes_created and ir.to_name in summary.classes_created:
+            sides = anchor_sides(positions[ir.from_name], positions[ir.to_name],
+                                 heights[ir.from_name], heights[ir.to_name])
         try:
             executor.create_relation(
                 from_class=ir.from_name,
@@ -150,6 +162,8 @@ async def import_xmi(
                 dst_role=ir.dst_role,
                 src_navigable=ir.src_navigable,
                 dst_navigable=ir.dst_navigable,
+                src_anchor=sides[0],
+                dst_anchor=sides[1],
             )
             summary.relations_created += 1
         except ToolError as e:
